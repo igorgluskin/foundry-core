@@ -1,0 +1,183 @@
+//! Tracing subscriber + log file initialization for the binary.
+//!
+//! Lives in the binary tree (not lib) because it owns process-global
+//! subscriber registration that should never be invoked from tests or
+//! external consumers of the library.
+
+use std::path::Path;
+
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+const NOISE_SUPPRESSIONS: &[&str] = &[
+    "sqlx::query=warn",
+    "hyper_util=warn",
+    "reqwest=warn",
+    // The ACP SDK logs raw UntypedMessage values at debug/trace, including
+    // session/update chunks with user/agent text. Keep its protocol internals
+    // out of default dev logs; aionui_ai_agent::protocol::acp emits sanitized
+    // summaries for the ACP flow we need to debug.
+    "agent_client_protocol::jsonrpc=info",
+    // Aionrs provider/agent debug logs include raw request bodies and SSE
+    // chunks. Keep lifecycle info logs, but do not write prompt/output
+    // payloads by default.
+    "aion_agent=info",
+    "aion_providers=info",
+];
+
+const AIONRS_TARGETS: &[&str] = &[
+    "aion_agent",
+    "aion_config",
+    "aion_compact",
+    "aion_mcp",
+    "aion_providers",
+    "aion_protocol",
+    "aion_tools",
+    "aion_skills",
+    "aion_memory",
+];
+
+const RAW_AIONRS_PAYLOAD_TARGETS: &[&str] = &["aion_agent", "aion_providers"];
+
+fn build_env_filter(log_level: Option<&str>) -> EnvFilter {
+    let user_directives = log_level.unwrap_or("info");
+    let suppressions = NOISE_SUPPRESSIONS.join(",");
+    EnvFilter::new(format!("{suppressions},{user_directives}"))
+}
+
+fn build_backend_filter(log_level: Option<&str>) -> EnvFilter {
+    let user_directives = log_level.unwrap_or("info");
+    let suppressions = NOISE_SUPPRESSIONS.join(",");
+    let aionrs_off: String = AIONRS_TARGETS
+        .iter()
+        .map(|t| format!("{t}=off"))
+        .collect::<Vec<_>>()
+        .join(",");
+    EnvFilter::new(format!("{suppressions},{aionrs_off},{user_directives}"))
+}
+
+fn build_aionrs_level(log_level: Option<&str>) -> String {
+    let level = log_level.unwrap_or("info");
+    AIONRS_TARGETS
+        .iter()
+        .map(|target| {
+            let target_level = if RAW_AIONRS_PAYLOAD_TARGETS.contains(target) {
+                "info"
+            } else {
+                level
+            };
+            format!("{target}={target_level}")
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// RAII guards that flush log buffers on drop. Hold for the process lifetime.
+pub struct LogGuards {
+    _backend: tracing_appender::non_blocking::WorkerGuard,
+    _aionrs: tracing_appender::non_blocking::WorkerGuard,
+}
+
+pub fn init_tracing(log_dir: &Path, log_level: Option<&str>) -> LogGuards {
+    std::fs::create_dir_all(log_dir).expect("failed to create log directory");
+
+    let console_layer = fmt::layer().with_target(true).with_filter(build_env_filter(log_level));
+
+    // Backend file layer — excludes aion_* targets
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_suffix("aioncore.log")
+        .build(log_dir)
+        .expect("failed to create backend log file appender");
+    let (non_blocking, backend_guard) = tracing_appender::non_blocking(file_appender);
+
+    let backend_file_layer = fmt::layer()
+        .json()
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .with_target(true)
+        .with_filter(build_backend_filter(log_level));
+
+    // Aionrs file layer — only aion_* targets
+    let aionrs_level = build_aionrs_level(log_level);
+    let aionrs_resolved = aion_config::logging::ResolvedLogging {
+        enabled: true,
+        level: aionrs_level,
+        dir: log_dir.to_path_buf(),
+    };
+    let (aionrs_layer, aionrs_guard) =
+        aion_config::logging::create_file_layer(&aionrs_resolved).expect("failed to create aionrs log layer");
+
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(backend_file_layer)
+        .with(aionrs_layer)
+        .init();
+
+    LogGuards {
+        _backend: backend_guard,
+        _aionrs: aionrs_guard,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tracing::Level;
+
+    #[test]
+    fn env_filter_suppresses_raw_acp_sdk_jsonrpc_debug_even_when_debug_enabled() {
+        let subscriber = tracing_subscriber::registry().with(build_env_filter(Some("debug")));
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(
+                !tracing::enabled!(target: "agent_client_protocol::jsonrpc::handlers", Level::DEBUG),
+                "ACP SDK JSON-RPC debug logs include raw UntypedMessage payloads"
+            );
+            assert!(
+                tracing::enabled!(target: "aionui_ai_agent::protocol::acp", Level::DEBUG),
+                "AionUi ACP sanitized debug summaries should still be available"
+            );
+        });
+    }
+
+    #[test]
+    fn backend_filter_suppresses_raw_acp_sdk_jsonrpc_debug_even_when_debug_enabled() {
+        let subscriber = tracing_subscriber::registry().with(build_backend_filter(Some("debug")));
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(
+                !tracing::enabled!(target: "agent_client_protocol::jsonrpc::handlers", Level::DEBUG),
+                "ACP SDK JSON-RPC debug logs include raw UntypedMessage payloads"
+            );
+            assert!(
+                tracing::enabled!(target: "aionui_ai_agent::protocol::acp", Level::DEBUG),
+                "AionUi ACP sanitized debug summaries should still be available"
+            );
+        });
+    }
+
+    #[test]
+    fn env_filter_suppresses_raw_aionrs_provider_debug_even_when_debug_enabled() {
+        let subscriber = tracing_subscriber::registry().with(build_env_filter(Some("debug")));
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(
+                !tracing::enabled!(target: "aion_agent", Level::DEBUG),
+                "aion_agent debug logs include raw request bodies"
+            );
+            assert!(
+                !tracing::enabled!(target: "aion_providers", Level::DEBUG),
+                "aion_providers debug logs include raw SSE chunks"
+            );
+            assert!(
+                tracing::enabled!(target: "aionui_ai_agent::manager::aionrs::agent", Level::DEBUG),
+                "AionUi aionrs lifecycle debug logs should still be available"
+            );
+        });
+    }
+
+    #[test]
+    fn aionrs_file_level_suppresses_raw_provider_targets_even_when_debug_enabled() {
+        let level = build_aionrs_level(Some("debug"));
+        assert!(level.contains("aion_agent=info"), "{level}");
+        assert!(level.contains("aion_providers=info"), "{level}");
+        assert!(level.contains("aion_tools=debug"), "{level}");
+    }
+}

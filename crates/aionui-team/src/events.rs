@@ -4,9 +4,12 @@ use aionui_api_types::{
     TeamAgentRemovedPayload, TeamAgentRenamedPayload, TeamAgentShutdownPayload, TeamAgentSpawnedPayload,
     TeamAgentStatusPayload, WebSocketMessage,
 };
+// Foundry: Phase 1 (task/mailbox API)
+use aionui_api_types::{TeamMailboxMessagePayload, TeamTaskCreatedPayload, TeamTaskUpdatedPayload};
 use aionui_realtime::EventBroadcaster;
 
-use crate::types::{TeamAgent, TeammateStatus};
+// Foundry: Phase 1 (task/mailbox API) — added MailboxMessage, TeamTask
+use crate::types::{MailboxMessage, TeamAgent, TeamTask, TeammateStatus};
 
 pub struct TeamEventEmitter {
     team_id: String,
@@ -87,6 +90,48 @@ impl TeamEventEmitter {
         );
         self.broadcaster.broadcast(event);
     }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Emit `team.task.created` after a task is added to the board.
+    pub fn broadcast_task_created(&self, task: &TeamTask) {
+        let payload = TeamTaskCreatedPayload {
+            team_id: self.team_id.clone(),
+            task: task.to_response(),
+        };
+        let event = WebSocketMessage::new(
+            "team.task.created",
+            serde_json::to_value(payload).expect("serialize task created payload"),
+        );
+        self.broadcaster.broadcast(event);
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Emit `team.task.updated` after a task's fields change.
+    pub fn broadcast_task_updated(&self, task: &TeamTask) {
+        let payload = TeamTaskUpdatedPayload {
+            team_id: self.team_id.clone(),
+            task: task.to_response(),
+        };
+        let event = WebSocketMessage::new(
+            "team.task.updated",
+            serde_json::to_value(payload).expect("serialize task updated payload"),
+        );
+        self.broadcaster.broadcast(event);
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Emit `team.mailbox.message` after a message is written to the mailbox.
+    pub fn broadcast_mailbox_message(&self, message: &MailboxMessage) {
+        let payload = TeamMailboxMessagePayload {
+            team_id: self.team_id.clone(),
+            message: message.to_response(),
+        };
+        let event = WebSocketMessage::new(
+            "team.mailbox.message",
+            serde_json::to_value(payload).expect("serialize mailbox message payload"),
+        );
+        self.broadcaster.broadcast(event);
+    }
 }
 
 #[cfg(test)]
@@ -97,6 +142,9 @@ mod tests {
         TeamAgentRemovedPayload, TeamAgentRenamedPayload, TeamAgentShutdownPayload, TeamAgentSpawnedPayload,
         TeamAgentStatusPayload,
     };
+    // Foundry: Phase 1 (task/mailbox API)
+    use crate::types::{MailboxMessageType, TaskStatus};
+    use aionui_api_types::{TeamMailboxMessagePayload, TeamTaskCreatedPayload, TeamTaskUpdatedPayload};
 
     struct RecordingBroadcaster {
         events: std::sync::Mutex<Vec<WebSocketMessage<serde_json::Value>>>,
@@ -210,6 +258,91 @@ mod tests {
         assert_eq!(payload.team_id, "team-1");
         assert_eq!(payload.slot_id, "slot-1");
         assert_eq!(payload.name, "New Name");
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    fn make_task() -> TeamTask {
+        TeamTask {
+            id: "tk-1".into(),
+            team_id: "team-1".into(),
+            subject: "Implement feature".into(),
+            description: Some("Details".into()),
+            status: TaskStatus::Pending,
+            owner: Some("slot-1".into()),
+            blocked_by: vec!["tk-0".into()],
+            blocks: vec!["tk-2".into()],
+            metadata: Some(serde_json::json!({ "priority": "high" })),
+            created_at: 1000,
+            updated_at: 2000,
+        }
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    fn make_message() -> MailboxMessage {
+        MailboxMessage {
+            id: "m-1".into(),
+            team_id: "team-1".into(),
+            to_agent_id: "slot-1".into(),
+            from_agent_id: "slot-2".into(),
+            msg_type: MailboxMessageType::Message,
+            content: "hello".into(),
+            summary: None,
+            files: None,
+            read: false,
+            created_at: 1000,
+        }
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    #[test]
+    fn task_created_event_has_correct_shape() {
+        let (emitter, bc) = make_emitter();
+        emitter.broadcast_task_created(&make_task());
+
+        let events = bc.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name, "team.task.created");
+
+        let payload: TeamTaskCreatedPayload = serde_json::from_value(events[0].data.clone()).unwrap();
+        assert_eq!(payload.team_id, "team-1");
+        assert_eq!(payload.task.id, "tk-1");
+        assert_eq!(payload.task.subject, "Implement feature");
+        assert_eq!(payload.task.status, "pending");
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    #[test]
+    fn task_updated_event_has_correct_shape() {
+        let (emitter, bc) = make_emitter();
+        let mut task = make_task();
+        task.status = TaskStatus::Completed;
+        emitter.broadcast_task_updated(&task);
+
+        let events = bc.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name, "team.task.updated");
+
+        let payload: TeamTaskUpdatedPayload = serde_json::from_value(events[0].data.clone()).unwrap();
+        assert_eq!(payload.team_id, "team-1");
+        assert_eq!(payload.task.id, "tk-1");
+        assert_eq!(payload.task.status, "completed");
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    #[test]
+    fn mailbox_message_event_has_correct_shape() {
+        let (emitter, bc) = make_emitter();
+        emitter.broadcast_mailbox_message(&make_message());
+
+        let events = bc.events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name, "team.mailbox.message");
+
+        let payload: TeamMailboxMessagePayload = serde_json::from_value(events[0].data.clone()).unwrap();
+        assert_eq!(payload.team_id, "team-1");
+        assert_eq!(payload.message.id, "m-1");
+        assert_eq!(payload.message.msg_type, "message");
+        assert_eq!(payload.message.content, "hello");
     }
 
     #[test]

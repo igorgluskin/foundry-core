@@ -145,6 +145,11 @@ pub use team::{
     TeamAgentShutdownPayload, TeamAgentSpawnedPayload, TeamAgentStatusPayload, TeamListResponse, TeamMcpPhase,
     TeamMcpStatusPayload, TeamResponse, TeammateMessagePayload,
 };
+// Foundry: Phase 1 (task/mailbox API)
+pub use team::{
+    CreateTaskRequest, MailboxListResponse, MailboxMessageResponse, TeamMailboxMessagePayload, TeamTaskCreatedPayload,
+    TeamTaskListResponse, TeamTaskResponse, TeamTaskUpdatedPayload, TeamTaskWrapper, UpdateTaskRequest,
+};
 pub use team_mcp::{GuideMcpConfig, TEAM_MCP_SERVER_NAME, TeamMcpStdioConfig};
 pub use websocket::WebSocketMessage;
 

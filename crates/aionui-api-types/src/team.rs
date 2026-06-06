@@ -246,6 +246,143 @@ pub struct TeammateMessagePayload {
     pub from_name: String,
 }
 
+// Foundry: Phase 1 (task/mailbox API)
+// ---------------------------------------------------------------------------
+// F. Task board — Request & Response DTOs
+// ---------------------------------------------------------------------------
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Single task within a task board response. Mirrors the `TeamTask`
+/// domain type (`aionui-team::types::TeamTask`) field-for-field.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TeamTaskResponse {
+    pub id: String,
+    pub team_id: String,
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    pub blocked_by: Vec<String>,
+    pub blocks: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: TimestampMs,
+    pub updated_at: TimestampMs,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Response body for `GET /api/teams/:id/tasks`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TeamTaskListResponse {
+    pub tasks: Vec<TeamTaskResponse>,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Wrapper for single-task responses (`POST`/`PATCH` task endpoints),
+/// so the task object lands under `data.task`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TeamTaskWrapper {
+    pub task: TeamTaskResponse,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Request body for `POST /api/teams/:id/tasks`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateTaskRequest {
+    pub subject: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub blocked_by: Option<Vec<String>>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Request body for `PATCH /api/teams/:id/tasks/:task_id`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateTaskRequest {
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub blocked_by: Option<Vec<String>>,
+    #[serde(default)]
+    pub blocks: Option<Vec<String>>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+// ---------------------------------------------------------------------------
+// G. Mailbox — Response DTOs
+// ---------------------------------------------------------------------------
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Single mailbox message within a mailbox response. Mirrors the
+/// `MailboxMessage` domain type (`aionui-team::types::MailboxMessage`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MailboxMessageResponse {
+    pub id: String,
+    pub team_id: String,
+    pub to_agent_id: String,
+    pub from_agent_id: String,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
+    pub read: bool,
+    pub created_at: TimestampMs,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Response body for `GET /api/teams/:id/mailbox`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MailboxListResponse {
+    pub messages: Vec<MailboxMessageResponse>,
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+// ---------------------------------------------------------------------------
+// H. Task board & mailbox — WebSocket event payloads
+// ---------------------------------------------------------------------------
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Payload for `team.task.created` WebSocket event.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TeamTaskCreatedPayload {
+    pub team_id: String,
+    pub task: TeamTaskResponse,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Payload for `team.task.updated` WebSocket event.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TeamTaskUpdatedPayload {
+    pub team_id: String,
+    pub task: TeamTaskResponse,
+}
+
+/// Foundry: Phase 1 (task/mailbox API)
+/// Payload for `team.mailbox.message` WebSocket event.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TeamMailboxMessagePayload {
+    pub team_id: String,
+    pub message: MailboxMessageResponse,
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -878,5 +1015,281 @@ mod tests {
         assert_eq!(json["content"], "ping");
         assert_eq!(json["from_slot_id"], "slot-1");
         assert_eq!(json["from_name"], "Lead");
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    // -- H. Task board DTOs ---------------------------------------------------
+
+    fn sample_task_response() -> TeamTaskResponse {
+        TeamTaskResponse {
+            id: "tk-1".into(),
+            team_id: "team-1".into(),
+            subject: "Implement feature".into(),
+            description: Some("Details".into()),
+            status: "pending".into(),
+            owner: Some("slot-1".into()),
+            blocked_by: vec!["tk-0".into()],
+            blocks: vec!["tk-2".into()],
+            metadata: Some(json!({ "priority": "high" })),
+            created_at: 1000,
+            updated_at: 2000,
+        }
+    }
+
+    #[test]
+    fn serialize_team_task_response_snake_case() {
+        let json = serde_json::to_value(sample_task_response()).unwrap();
+        assert_eq!(json["id"], "tk-1");
+        assert_eq!(json["team_id"], "team-1");
+        assert_eq!(json["subject"], "Implement feature");
+        assert_eq!(json["status"], "pending");
+        assert_eq!(json["owner"], "slot-1");
+        assert_eq!(json["blocked_by"][0], "tk-0");
+        assert_eq!(json["blocks"][0], "tk-2");
+        assert_eq!(json["metadata"]["priority"], "high");
+        assert_eq!(json["created_at"], 1000_i64);
+        assert_eq!(json["updated_at"], 2000_i64);
+    }
+
+    #[test]
+    fn serialize_team_task_response_optional_fields_omitted() {
+        let task = TeamTaskResponse {
+            id: "tk-1".into(),
+            team_id: "team-1".into(),
+            subject: "Simple".into(),
+            description: None,
+            status: "pending".into(),
+            owner: None,
+            blocked_by: vec![],
+            blocks: vec![],
+            metadata: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let json = serde_json::to_value(&task).unwrap();
+        assert!(json.get("description").is_none());
+        assert!(json.get("owner").is_none());
+        assert!(json.get("metadata").is_none());
+        assert!(json["blocked_by"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn team_task_response_roundtrip() {
+        let task = sample_task_response();
+        let json = serde_json::to_string(&task).unwrap();
+        let parsed: TeamTaskResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, task);
+    }
+
+    #[test]
+    fn serialize_team_task_list_response() {
+        let list = TeamTaskListResponse {
+            tasks: vec![sample_task_response()],
+        };
+        let json = serde_json::to_value(&list).unwrap();
+        assert_eq!(json["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(json["tasks"][0]["id"], "tk-1");
+    }
+
+    #[test]
+    fn serialize_team_task_wrapper() {
+        let wrapper = TeamTaskWrapper {
+            task: sample_task_response(),
+        };
+        let json = serde_json::to_value(&wrapper).unwrap();
+        assert_eq!(json["task"]["id"], "tk-1");
+    }
+
+    #[test]
+    fn deserialize_create_task_request_full() {
+        let raw = json!({
+            "subject": "Build it",
+            "description": "Do the thing",
+            "owner": "slot-1",
+            "blocked_by": ["tk-0"],
+            "metadata": { "priority": "high" }
+        });
+        let req: CreateTaskRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.subject, "Build it");
+        assert_eq!(req.description.as_deref(), Some("Do the thing"));
+        assert_eq!(req.owner.as_deref(), Some("slot-1"));
+        assert_eq!(req.blocked_by.unwrap(), vec!["tk-0"]);
+        assert!(req.metadata.is_some());
+    }
+
+    #[test]
+    fn deserialize_create_task_request_minimal() {
+        let raw = json!({ "subject": "Just a subject" });
+        let req: CreateTaskRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.subject, "Just a subject");
+        assert!(req.description.is_none());
+        assert!(req.owner.is_none());
+        assert!(req.blocked_by.is_none());
+        assert!(req.metadata.is_none());
+    }
+
+    #[test]
+    fn deserialize_create_task_request_missing_subject() {
+        let raw = json!({ "description": "no subject" });
+        let result = serde_json::from_value::<CreateTaskRequest>(raw);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deserialize_update_task_request_full() {
+        let raw = json!({
+            "subject": "New subject",
+            "description": "New desc",
+            "status": "in_progress",
+            "owner": "slot-2",
+            "blocked_by": ["tk-1"],
+            "blocks": ["tk-3"],
+            "metadata": { "k": "v" }
+        });
+        let req: UpdateTaskRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.subject.as_deref(), Some("New subject"));
+        assert_eq!(req.status.as_deref(), Some("in_progress"));
+        assert_eq!(req.owner.as_deref(), Some("slot-2"));
+        assert_eq!(req.blocked_by.unwrap(), vec!["tk-1"]);
+        assert_eq!(req.blocks.unwrap(), vec!["tk-3"]);
+    }
+
+    #[test]
+    fn deserialize_update_task_request_empty() {
+        let raw = json!({});
+        let req: UpdateTaskRequest = serde_json::from_value(raw).unwrap();
+        assert!(req.subject.is_none());
+        assert!(req.status.is_none());
+        assert!(req.metadata.is_none());
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    // -- I. Mailbox DTOs ------------------------------------------------------
+
+    fn sample_mailbox_response() -> MailboxMessageResponse {
+        MailboxMessageResponse {
+            id: "m-1".into(),
+            team_id: "team-1".into(),
+            to_agent_id: "slot-1".into(),
+            from_agent_id: "slot-2".into(),
+            msg_type: "message".into(),
+            content: "hello".into(),
+            summary: Some("greeting".into()),
+            files: Some(vec!["/tmp/a.txt".into()]),
+            read: false,
+            created_at: 1000,
+        }
+    }
+
+    #[test]
+    fn serialize_mailbox_message_response_type_field() {
+        let json = serde_json::to_value(sample_mailbox_response()).unwrap();
+        assert_eq!(json["id"], "m-1");
+        assert_eq!(json["team_id"], "team-1");
+        assert_eq!(json["to_agent_id"], "slot-1");
+        assert_eq!(json["from_agent_id"], "slot-2");
+        assert_eq!(json["type"], "message");
+        assert!(json.get("msg_type").is_none(), "must serialize as 'type'");
+        assert_eq!(json["content"], "hello");
+        assert_eq!(json["summary"], "greeting");
+        assert_eq!(json["files"][0], "/tmp/a.txt");
+        assert_eq!(json["read"], false);
+        assert_eq!(json["created_at"], 1000_i64);
+    }
+
+    #[test]
+    fn serialize_mailbox_message_response_optional_fields_omitted() {
+        let msg = MailboxMessageResponse {
+            id: "m-2".into(),
+            team_id: "team-1".into(),
+            to_agent_id: "slot-1".into(),
+            from_agent_id: "user".into(),
+            msg_type: "message".into(),
+            content: "x".into(),
+            summary: None,
+            files: None,
+            read: true,
+            created_at: 0,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert!(json.get("summary").is_none());
+        assert!(json.get("files").is_none());
+    }
+
+    #[test]
+    fn mailbox_message_response_roundtrip() {
+        let msg = sample_mailbox_response();
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: MailboxMessageResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn serialize_mailbox_list_response() {
+        let list = MailboxListResponse {
+            messages: vec![sample_mailbox_response()],
+        };
+        let json = serde_json::to_value(&list).unwrap();
+        assert_eq!(json["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(json["messages"][0]["id"], "m-1");
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    // -- J. Task board & mailbox WebSocket payloads ---------------------------
+
+    #[test]
+    fn serialize_team_task_created_payload() {
+        let payload = TeamTaskCreatedPayload {
+            team_id: "team-1".into(),
+            task: sample_task_response(),
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["team_id"], "team-1");
+        assert_eq!(json["task"]["id"], "tk-1");
+    }
+
+    #[test]
+    fn team_task_created_payload_roundtrip() {
+        let payload = TeamTaskCreatedPayload {
+            team_id: "team-1".into(),
+            task: sample_task_response(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: TeamTaskCreatedPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, payload);
+    }
+
+    #[test]
+    fn serialize_team_task_updated_payload() {
+        let payload = TeamTaskUpdatedPayload {
+            team_id: "team-1".into(),
+            task: sample_task_response(),
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["team_id"], "team-1");
+        assert_eq!(json["task"]["id"], "tk-1");
+    }
+
+    #[test]
+    fn serialize_team_mailbox_message_payload() {
+        let payload = TeamMailboxMessagePayload {
+            team_id: "team-1".into(),
+            message: sample_mailbox_response(),
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["team_id"], "team-1");
+        assert_eq!(json["message"]["id"], "m-1");
+        assert_eq!(json["message"]["type"], "message");
+    }
+
+    #[test]
+    fn team_mailbox_message_payload_roundtrip() {
+        let payload = TeamMailboxMessagePayload {
+            team_id: "team-1".into(),
+            message: sample_mailbox_response(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: TeamMailboxMessagePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, payload);
     }
 }

@@ -1,6 +1,7 @@
 use std::fmt;
 
-use aionui_api_types::{TeamAgentResponse, TeamResponse};
+// Foundry: Phase 1 (task/mailbox API) — added MailboxMessageResponse, TeamTaskResponse
+use aionui_api_types::{MailboxMessageResponse, TeamAgentResponse, TeamResponse, TeamTaskResponse};
 use aionui_common::TimestampMs;
 use serde::{Deserialize, Serialize};
 
@@ -329,6 +330,46 @@ impl TeamTask {
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Map a `TeamTask` to its API wire form. `status` is rendered via
+    /// [`TaskStatus::Display`] (snake_case) to match the MCP/serde form.
+    pub fn to_response(&self) -> TeamTaskResponse {
+        TeamTaskResponse {
+            id: self.id.clone(),
+            team_id: self.team_id.clone(),
+            subject: self.subject.clone(),
+            description: self.description.clone(),
+            status: self.status.to_string(),
+            owner: self.owner.clone(),
+            blocked_by: self.blocked_by.clone(),
+            blocks: self.blocks.clone(),
+            metadata: self.metadata.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+impl MailboxMessage {
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Map a `MailboxMessage` to its API wire form. `msg_type` is rendered
+    /// via [`MailboxMessageType::Display`] (snake_case) and serializes under
+    /// the `type` field, mirroring [`MailboxMessage`]'s own serde shape.
+    pub fn to_response(&self) -> MailboxMessageResponse {
+        MailboxMessageResponse {
+            id: self.id.clone(),
+            team_id: self.team_id.clone(),
+            to_agent_id: self.to_agent_id.clone(),
+            from_agent_id: self.from_agent_id.clone(),
+            msg_type: self.msg_type.to_string(),
+            content: self.content.clone(),
+            summary: self.summary.clone(),
+            files: self.files.clone(),
+            read: self.read,
+            created_at: self.created_at,
+        }
     }
 }
 
@@ -865,5 +906,63 @@ mod tests {
             updated_at: 0,
         };
         assert!(TeamTask::from_row(&row).is_err());
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    // -- TeamTask / MailboxMessage to_response --------------------------------
+
+    #[test]
+    fn team_task_to_response() {
+        let task = TeamTask {
+            id: "tk1".into(),
+            team_id: "t1".into(),
+            subject: "Implement".into(),
+            description: Some("Details".into()),
+            status: TaskStatus::InProgress,
+            owner: Some("a1".into()),
+            blocked_by: vec!["tk0".into()],
+            blocks: vec!["tk2".into()],
+            metadata: Some(serde_json::json!({ "priority": "high" })),
+            created_at: 1000,
+            updated_at: 2000,
+        };
+        let resp = task.to_response();
+        assert_eq!(resp.id, "tk1");
+        assert_eq!(resp.team_id, "t1");
+        assert_eq!(resp.subject, "Implement");
+        assert_eq!(resp.description.as_deref(), Some("Details"));
+        assert_eq!(resp.status, "in_progress");
+        assert_eq!(resp.owner.as_deref(), Some("a1"));
+        assert_eq!(resp.blocked_by, vec!["tk0"]);
+        assert_eq!(resp.blocks, vec!["tk2"]);
+        assert!(resp.metadata.is_some());
+        assert_eq!(resp.created_at, 1000);
+        assert_eq!(resp.updated_at, 2000);
+    }
+
+    #[test]
+    fn mailbox_message_to_response() {
+        let msg = MailboxMessage {
+            id: "m1".into(),
+            team_id: "t1".into(),
+            to_agent_id: "a1".into(),
+            from_agent_id: "a2".into(),
+            msg_type: MailboxMessageType::IdleNotification,
+            content: "done".into(),
+            summary: Some("Task complete".into()),
+            files: Some(vec!["/tmp/a.txt".into()]),
+            read: true,
+            created_at: 1000,
+        };
+        let resp = msg.to_response();
+        assert_eq!(resp.id, "m1");
+        assert_eq!(resp.to_agent_id, "a1");
+        assert_eq!(resp.from_agent_id, "a2");
+        assert_eq!(resp.msg_type, "idle_notification");
+        assert_eq!(resp.content, "done");
+        assert_eq!(resp.summary.as_deref(), Some("Task complete"));
+        assert_eq!(resp.files.as_deref(), Some(&["/tmp/a.txt".to_owned()][..]));
+        assert!(resp.read);
+        assert_eq!(resp.created_at, 1000);
     }
 }

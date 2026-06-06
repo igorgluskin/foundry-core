@@ -9,6 +9,8 @@ use aionui_api_types::{
     AddAgentRequest, CreateConversationRequest, CreateTeamRequest, GuideMcpConfig, TeamAgentResponse, TeamMcpPhase,
     TeamMcpStatusPayload, TeamResponse, WebSocketMessage,
 };
+// Foundry: Phase 1 (task/mailbox API)
+use aionui_api_types::{CreateTaskRequest, MailboxMessageResponse, TeamTaskResponse, UpdateTaskRequest};
 use aionui_common::{
     AgentKillReason, AgentType, ProviderWithModel, WorkspacePathValidationError, generate_id, now_ms,
     validate_workspace_path_availability,
@@ -25,6 +27,11 @@ use crate::error::TeamError;
 use crate::event_loop::AgentLoopContext;
 use crate::session::TeamSession;
 use crate::types::{Team, TeamAgent, TeammateRole};
+// Foundry: Phase 1 (task/mailbox API)
+use crate::events::TeamEventEmitter;
+use crate::mailbox::Mailbox;
+use crate::task_board::{TaskBoard, TaskUpdate};
+use crate::types::TaskStatus;
 
 struct SessionEntry {
     session: Arc<TeamSession>,
@@ -924,6 +931,162 @@ impl TeamSessionService {
             .ok_or_else(|| TeamError::SessionNotFound(team_id.into()))?;
         entry.session.notify_agent(slot_id);
         Ok(())
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Build a [`TeamEventEmitter`] bound to `team_id` over the shared
+    /// broadcaster — mirrors how the scheduler constructs its emitter.
+    fn task_event_emitter(&self, team_id: &str) -> TeamEventEmitter {
+        TeamEventEmitter::new(team_id.to_owned(), self.broadcaster.clone())
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// List all tasks for a team. Read-only — goes straight through `self.repo`
+    /// via [`TaskBoard`], no event emitted. Returns 404 if the team is absent.
+    pub async fn list_team_tasks(&self, team_id: &str) -> Result<Vec<TeamTaskResponse>, TeamError> {
+        self.repo
+            .get_team(team_id)
+            .await?
+            .ok_or_else(|| TeamError::TeamNotFound(team_id.into()))?;
+        let board = TaskBoard::new(self.repo.clone());
+        let tasks = board.list_tasks(team_id).await?;
+        Ok(tasks.iter().map(|t| t.to_response()).collect())
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Create a task on the board. Routed through [`TaskBoard`] so the
+    /// `blocked_by` → `blocks` back-edges stay consistent. Emits
+    /// `team.task.created` on success.
+    pub async fn create_team_task(
+        &self,
+        team_id: &str,
+        req: CreateTaskRequest,
+    ) -> Result<TeamTaskResponse, TeamError> {
+        self.repo
+            .get_team(team_id)
+            .await?
+            .ok_or_else(|| TeamError::TeamNotFound(team_id.into()))?;
+
+        let board = TaskBoard::new(self.repo.clone());
+        let blocked_by = req.blocked_by.unwrap_or_default();
+        let task = board
+            .create_task(
+                team_id,
+                &req.subject,
+                req.description.as_deref(),
+                req.owner.as_deref(),
+                &blocked_by,
+            )
+            .await?;
+
+        // `TaskBoard::create_task` does not persist `metadata`; apply it via a
+        // follow-up update so the created task carries the caller's metadata.
+        let task = if let Some(metadata) = req.metadata {
+            board
+                .update_task(
+                    team_id,
+                    &task.id,
+                    &TaskUpdate {
+                        metadata: Some(metadata),
+                        ..Default::default()
+                    },
+                )
+                .await?
+        } else {
+            task
+        };
+
+        self.task_event_emitter(team_id).broadcast_task_created(&task);
+        Ok(task.to_response())
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// Update a task. Routed through [`TaskBoard`] so completing a task still
+    /// unblocks its downstream dependents. Emits `team.task.updated` on
+    /// success.
+    ///
+    /// NOTE: the existing storage layer ([`UpdateTaskParams`]) does not support
+    /// editing `subject` or `blocks` directly (`blocks` is a derived back-edge
+    /// maintained by [`TaskBoard`]). Those request fields are therefore
+    /// accepted but ignored here; supporting them would require new repo
+    /// methods, which is out of Phase 1 scope.
+    pub async fn update_team_task(
+        &self,
+        team_id: &str,
+        task_id: &str,
+        req: UpdateTaskRequest,
+    ) -> Result<TeamTaskResponse, TeamError> {
+        self.repo
+            .get_team(team_id)
+            .await?
+            .ok_or_else(|| TeamError::TeamNotFound(team_id.into()))?;
+
+        let status = match req.status.as_deref() {
+            Some(s) => {
+                Some(TaskStatus::parse(s).ok_or_else(|| TeamError::InvalidRequest(format!("invalid status: {s}")))?)
+            }
+            None => None,
+        };
+
+        let board = TaskBoard::new(self.repo.clone());
+        let task = board
+            .update_task(
+                team_id,
+                task_id,
+                &TaskUpdate {
+                    status,
+                    description: req.description,
+                    owner: req.owner,
+                    blocked_by: req.blocked_by,
+                    metadata: req.metadata,
+                },
+            )
+            .await?;
+
+        self.task_event_emitter(team_id).broadcast_task_updated(&task);
+        Ok(task.to_response())
+    }
+
+    // Foundry: Phase 1 (task/mailbox API)
+    /// List mailbox history for a team. When `slot_id` is provided, scope to
+    /// that agent's inbox; otherwise aggregate history across every agent in
+    /// the team. Read-only — no event emitted. Returns 404 if the team is
+    /// absent.
+    pub async fn list_team_mailbox(
+        &self,
+        team_id: &str,
+        slot_id: Option<&str>,
+        limit: Option<i64>,
+    ) -> Result<Vec<MailboxMessageResponse>, TeamError> {
+        let row = self
+            .repo
+            .get_team(team_id)
+            .await?
+            .ok_or_else(|| TeamError::TeamNotFound(team_id.into()))?;
+
+        let mailbox = Mailbox::new(self.repo.clone());
+
+        let messages = if let Some(slot_id) = slot_id {
+            mailbox.get_history(team_id, slot_id, limit).await?
+        } else {
+            // No slot filter: aggregate each agent's inbox, ordered by time.
+            let team = Team::from_row(&row)?;
+            let mut all = Vec::new();
+            for agent in &team.agents {
+                let history = mailbox.get_history(team_id, &agent.slot_id, None).await?;
+                all.extend(history);
+            }
+            all.sort_by_key(|m| m.created_at);
+            if let Some(limit) = limit {
+                let limit = limit.max(0) as usize;
+                if all.len() > limit {
+                    all = all.split_off(all.len() - limit);
+                }
+            }
+            all
+        };
+
+        Ok(messages.iter().map(|m| m.to_response()).collect())
     }
 }
 

@@ -12,6 +12,10 @@ use aionui_api_types::{
     AddAgentRequest, ApiResponse, CreateTeamRequest, RenameAgentRequest, RenameTeamRequest, SendAgentMessageRequest,
     SendTeamMessageRequest, SetModeRequest, TeamAgentResponse, TeamListResponse, TeamResponse,
 };
+// Foundry: Phase 1 (task/mailbox API)
+use aionui_api_types::{
+    CreateTaskRequest, MailboxListResponse, TeamTaskListResponse, TeamTaskWrapper, UpdateTaskRequest,
+};
 use aionui_auth::CurrentUser;
 use aionui_common::ApiError;
 use aionui_db::DbError;
@@ -70,6 +74,10 @@ pub fn team_routes(state: TeamRouterState) -> Router {
         .route("/api/teams/{id}/agents/{slot_id}/messages", post(send_message_to_agent))
         .route("/api/teams/{id}/session", post(ensure_session).delete(stop_session))
         .route("/api/teams/{id}/session-mode", post(set_session_mode))
+        // Foundry: Phase 1 (task/mailbox API)
+        .route("/api/teams/{id}/tasks", get(list_tasks).post(create_task))
+        .route("/api/teams/{id}/tasks/{task_id}", axum::routing::patch(update_task))
+        .route("/api/teams/{id}/mailbox", get(list_mailbox))
         .with_state(state)
 }
 
@@ -204,6 +212,66 @@ async fn stop_session(
 ) -> Result<Json<ApiResponse<()>>, ApiError> {
     state.service.stop_session(&id);
     Ok(Json(ApiResponse::success()))
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+#[derive(serde::Deserialize)]
+struct TaskPathParams {
+    id: String,
+    task_id: String,
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+#[derive(serde::Deserialize)]
+struct MailboxQuery {
+    #[serde(default)]
+    slot_id: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+async fn list_tasks(
+    State(state): State<TeamRouterState>,
+    Path(id): Path<String>,
+) -> Result<Json<ApiResponse<TeamTaskListResponse>>, ApiError> {
+    let tasks = state.service.list_team_tasks(&id).await?;
+    Ok(Json(ApiResponse::ok(TeamTaskListResponse { tasks })))
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+async fn create_task(
+    State(state): State<TeamRouterState>,
+    Path(id): Path<String>,
+    body: Result<Json<CreateTaskRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<ApiResponse<TeamTaskWrapper>>), ApiError> {
+    let Json(req) = body.map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let task = state.service.create_team_task(&id, req).await?;
+    Ok((StatusCode::CREATED, Json(ApiResponse::ok(TeamTaskWrapper { task }))))
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+async fn update_task(
+    State(state): State<TeamRouterState>,
+    Path(params): Path<TaskPathParams>,
+    body: Result<Json<UpdateTaskRequest>, JsonRejection>,
+) -> Result<Json<ApiResponse<TeamTaskWrapper>>, ApiError> {
+    let Json(req) = body.map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let task = state.service.update_team_task(&params.id, &params.task_id, req).await?;
+    Ok(Json(ApiResponse::ok(TeamTaskWrapper { task })))
+}
+
+// Foundry: Phase 1 (task/mailbox API)
+async fn list_mailbox(
+    State(state): State<TeamRouterState>,
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<MailboxQuery>,
+) -> Result<Json<ApiResponse<MailboxListResponse>>, ApiError> {
+    let messages = state
+        .service
+        .list_team_mailbox(&id, query.slot_id.as_deref(), query.limit)
+        .await?;
+    Ok(Json(ApiResponse::ok(MailboxListResponse { messages })))
 }
 
 #[cfg(test)]

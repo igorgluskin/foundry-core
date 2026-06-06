@@ -37,6 +37,8 @@ fn make_team(id: &str, name: &str) -> TeamRow {
         lead_agent_id: Some("a1".into()),
         session_mode: None,
         agents_version: "1.0.1".into(),
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
         created_at: now,
         updated_at: now,
     }
@@ -98,7 +100,8 @@ async fn get_nonexistent_team_returns_none() {
 #[tokio::test]
 async fn list_teams_empty() {
     let (repo, _db) = repo().await;
-    let teams = repo.list_teams().await.unwrap();
+    // Foundry: Phase 3 (multi-project)
+    let teams = repo.list_teams(None).await.unwrap();
     assert!(teams.is_empty());
 }
 
@@ -108,7 +111,8 @@ async fn list_teams_multiple() {
     repo.create_team(&make_team("t1", "Alpha")).await.unwrap();
     repo.create_team(&make_team("t2", "Beta")).await.unwrap();
 
-    let teams = repo.list_teams().await.unwrap();
+    // Foundry: Phase 3 (multi-project)
+    let teams = repo.list_teams(None).await.unwrap();
     assert_eq!(teams.len(), 2);
     assert_eq!(teams[0].id, "t1");
     assert_eq!(teams[1].id, "t2");

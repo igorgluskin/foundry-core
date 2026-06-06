@@ -293,6 +293,8 @@ impl TeamSessionService {
             source: None,
             channel_chat_id: None,
             extra,
+            // Foundry: Phase 3 (multi-project) — spawned agent inherits the team's project.
+            project_id: row.project_id.clone(),
         };
         let conv = self
             .conversation_service

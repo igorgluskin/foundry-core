@@ -736,6 +736,8 @@ mod tests {
             lead_agent_id: Some("s1".into()),
             session_mode: None,
             agents_version: "1.0.1".into(),
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 1000,
             updated_at: 2000,
         };
@@ -791,6 +793,8 @@ mod tests {
             lead_agent_id: None,
             session_mode: None,
             agents_version: "1.0.1".into(),
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 0,
             updated_at: 0,
         };

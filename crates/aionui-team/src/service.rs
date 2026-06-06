@@ -97,7 +97,8 @@ impl TeamSessionService {
     /// Restore sessions for all existing teams. Called once at app startup
     /// so that MCP servers are available before any user sends a message.
     pub async fn restore_all_sessions(&self) {
-        let teams = match self.repo.list_teams().await {
+        // Foundry: Phase 3 (multi-project) — restore covers all teams (no filter).
+        let teams = match self.repo.list_teams(None).await {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %e, "failed to list teams for session restore");
@@ -236,6 +237,8 @@ impl TeamSessionService {
                     source: None,
                     channel_chat_id: None,
                     extra,
+                    // Foundry: Phase 3 (multi-project) — inherit the team's project.
+                    project_id: req.project_id.clone(),
                 };
                 let conv = self
                     .conversation_service
@@ -275,6 +278,8 @@ impl TeamSessionService {
             lead_agent_id: lead_agent_id.clone(),
             session_mode: None,
             agents_version: "1.0.1".into(),
+            // Foundry: Phase 3 (multi-project)
+            project_id: req.project_id.clone(),
             created_at: now,
             updated_at: now,
         };
@@ -306,8 +311,9 @@ impl TeamSessionService {
         self.build_team_response(&team).await
     }
 
-    pub async fn list_teams(&self) -> Result<Vec<TeamResponse>, TeamError> {
-        let rows = self.repo.list_teams().await?;
+    // Foundry: Phase 3 (multi-project) — optional `project_id` filter.
+    pub async fn list_teams(&self, project_id: Option<&str>) -> Result<Vec<TeamResponse>, TeamError> {
+        let rows = self.repo.list_teams(project_id).await?;
         let mut teams = Vec::with_capacity(rows.len());
         for row in &rows {
             match Team::from_row(row) {
@@ -470,6 +476,8 @@ impl TeamSessionService {
             source: None,
             channel_chat_id: None,
             extra,
+            // Foundry: Phase 3 (multi-project) — new agent inherits the team's project.
+            project_id: row.project_id.clone(),
         };
         let conv = self
             .conversation_service

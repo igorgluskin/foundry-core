@@ -37,6 +37,10 @@ pub struct CreateTeamRequest {
     pub agents: Vec<TeamAgentInput>,
     #[serde(default)]
     pub workspace: Option<String>,
+    // Foundry: Phase 3 (multi-project)
+    /// Optional project association applied to the new team row.
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 /// Request body for `PATCH /api/teams/:id/name`.

@@ -33,6 +33,8 @@ use aionui_team::team_routes;
 use crate::services::AppServices;
 
 use super::health::{guide_mcp_status, health_check};
+// Foundry: Phase 3 (multi-project)
+use super::project::project_routes;
 use super::state::{ModuleStates, build_module_states, build_ws_state};
 use super::trace::with_access_log;
 
@@ -189,6 +191,11 @@ pub fn create_router_with_all_state(services: &AppServices, states: ModuleStates
     let team_authenticated =
         team_routes(states.team).route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
 
+    // Foundry: Phase 3 (multi-project)
+    // Project routes protected by auth middleware
+    let project_authenticated =
+        project_routes(states.project).route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
+
     // Cron routes protected by auth middleware
     let cron_authenticated =
         cron_routes(states.cron).route_layer(from_fn_with_state(auth_mw_state.clone(), auth_middleware));
@@ -237,6 +244,8 @@ pub fn create_router_with_all_state(services: &AppServices, states: ModuleStates
         .merge(skill_authenticated)
         .merge(channel_authenticated)
         .merge(team_authenticated)
+        // Foundry: Phase 3 (multi-project)
+        .merge(project_authenticated)
         .merge(cron_authenticated)
         .merge(office_authenticated)
         .merge(shell_authenticated)

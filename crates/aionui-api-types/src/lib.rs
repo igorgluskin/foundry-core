@@ -19,6 +19,8 @@ mod file;
 mod lifecycle;
 mod mcp;
 mod office;
+// Foundry: Phase 3 (multi-project)
+mod project;
 mod provider;
 mod remote_agent;
 mod response;
@@ -107,6 +109,8 @@ pub use office::{
     PreviewStatusEvent, PreviewUrlResponse, SaveSnapshotRequest, SnapshotContentResponse, StarOfficeDetectResponse,
     StartPreviewRequest, StopPreviewRequest,
 };
+// Foundry: Phase 3 (multi-project)
+pub use project::{CreateProjectRequest, ProjectListResponse, ProjectResponse, UpdateProjectRequest};
 pub use provider::{
     BedrockAuthMethod, BedrockConfig, CreateProviderRequest, DetectProtocolRequest, DetectionSuggestion,
     FetchModelsAnonymousRequest, FetchModelsRequest, FetchModelsResponse, HealthStatus, KeyTestResult, ModelCapability,

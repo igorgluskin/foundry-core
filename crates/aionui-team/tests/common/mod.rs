@@ -26,7 +26,8 @@ impl ITeamRepository for MockTeamRepo {
     async fn create_team(&self, _row: &TeamRow) -> Result<(), DbError> {
         Ok(())
     }
-    async fn list_teams(&self) -> Result<Vec<TeamRow>, DbError> {
+    // Foundry: Phase 3 (multi-project)
+    async fn list_teams(&self, _project_id: Option<&str>) -> Result<Vec<TeamRow>, DbError> {
         Ok(vec![])
     }
     async fn get_team(&self, _id: &str) -> Result<Option<TeamRow>, DbError> {

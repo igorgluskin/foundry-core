@@ -30,6 +30,12 @@ pub struct ConversationRow {
     /// Whether this conversation is pinned (SQLite INTEGER 0/1).
     pub pinned: bool,
     pub pinned_at: Option<TimestampMs>,
+    // Foundry: Phase 3 (multi-project)
+    /// Optional project association (FK → projects.id, ON DELETE SET NULL).
+    /// `#[sqlx(default)]` so rows selected before migration 010 (or via
+    /// queries that omit the column) decode to `None` instead of erroring.
+    #[sqlx(default)]
+    pub project_id: Option<String>,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
 }

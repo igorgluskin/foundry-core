@@ -207,8 +207,18 @@ impl ITeamRepository for FullMockTeamRepo {
         self.teams.lock().unwrap().push(row.clone());
         Ok(())
     }
-    async fn list_teams(&self) -> Result<Vec<aionui_db::models::TeamRow>, DbError> {
-        Ok(self.teams.lock().unwrap().clone())
+    // Foundry: Phase 3 (multi-project)
+    async fn list_teams(&self, project_id: Option<&str>) -> Result<Vec<aionui_db::models::TeamRow>, DbError> {
+        let teams = self.teams.lock().unwrap();
+        let filtered = match project_id {
+            Some(pid) => teams
+                .iter()
+                .filter(|t| t.project_id.as_deref() == Some(pid))
+                .cloned()
+                .collect(),
+            None => teams.clone(),
+        };
+        Ok(filtered)
     }
     async fn get_team(&self, id: &str) -> Result<Option<aionui_db::models::TeamRow>, DbError> {
         Ok(self.teams.lock().unwrap().iter().find(|t| t.id == id).cloned())
@@ -785,6 +795,8 @@ async fn tc1_create_team_with_multiple_agents() {
                 name: "Alpha".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -820,6 +832,8 @@ async fn tc_create_team_uses_custom_agent_id_icon_lookup() {
                     conversation_id: None,
                 }],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -853,6 +867,8 @@ async fn ta_add_agent_uses_model_fallback_for_acp_backend() {
                     conversation_id: None,
                 }],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -895,6 +911,8 @@ async fn tc2_create_single_agent_team() {
                     conversation_id: None,
                 }],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -931,6 +949,8 @@ async fn tc4_first_agent_is_lead() {
                     },
                 ],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -950,6 +970,8 @@ async fn tc5_empty_agents_returns_error() {
                 name: "Empty".into(),
                 agents: vec![],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await;
@@ -966,6 +988,8 @@ async fn tc3_each_agent_has_conversation_id() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -982,7 +1006,7 @@ async fn tc3_each_agent_has_conversation_id() {
 #[tokio::test]
 async fn tl1_empty_list() {
     let svc = setup();
-    let list = svc.list_teams().await.unwrap();
+    let list = svc.list_teams(None).await.unwrap();
     assert!(list.is_empty());
 }
 
@@ -995,6 +1019,8 @@ async fn tl2_list_multiple_teams() {
             name: "A".into(),
             agents: two_agent_input(),
             workspace: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
         },
     )
     .await
@@ -1005,12 +1031,14 @@ async fn tl2_list_multiple_teams() {
             name: "B".into(),
             agents: two_agent_input(),
             workspace: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
         },
     )
     .await
     .unwrap();
 
-    let list = svc.list_teams().await.unwrap();
+    let list = svc.list_teams(None).await.unwrap();
     assert_eq!(list.len(), 2);
 }
 
@@ -1031,6 +1059,8 @@ async fn tl_list_teams_includes_pending_confirmation_counts_without_rebuilding_t
                     conversation_id: None,
                 }],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1055,7 +1085,7 @@ async fn tl_list_teams_includes_pending_confirmation_counts_without_rebuilding_t
         .unwrap();
     let before = task_manager.snapshot();
 
-    let list = svc.list_teams().await.unwrap();
+    let list = svc.list_teams(None).await.unwrap();
     let after = task_manager.snapshot();
 
     assert_eq!(list.len(), 1);
@@ -1076,6 +1106,8 @@ async fn tg1_get_existing_team() {
                 name: "Alpha".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1106,13 +1138,15 @@ async fn td1_delete_existing_team() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
         .unwrap();
 
     svc.remove_team("user1", &created.id).await.unwrap();
-    let list = svc.list_teams().await.unwrap();
+    let list = svc.list_teams(None).await.unwrap();
     assert!(list.is_empty());
 }
 
@@ -1135,6 +1169,8 @@ async fn tr1_rename_existing_team() {
                 name: "Old".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1173,6 +1209,8 @@ async fn aa1_add_agent_to_team() {
                     conversation_id: None,
                 }],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1234,6 +1272,8 @@ async fn ar1_remove_agent_from_team() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1257,6 +1297,8 @@ async fn ar4_remove_nonexistent_agent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1276,6 +1318,8 @@ async fn an1_rename_agent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1299,6 +1343,8 @@ async fn an3_rename_nonexistent_agent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1322,6 +1368,8 @@ async fn es1_ensure_session_creates_session() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1340,6 +1388,8 @@ async fn es2_ensure_session_is_idempotent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1401,6 +1451,8 @@ async fn ss1_stop_session() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1420,6 +1472,8 @@ async fn ss3_stop_session_without_active_is_noop() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1449,6 +1503,8 @@ async fn sm1_send_message_with_active_session() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1468,6 +1524,8 @@ async fn sa_send_message_to_agent_with_active_session() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1490,6 +1548,8 @@ async fn sa3_send_message_to_nonexistent_agent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1516,6 +1576,8 @@ async fn dispose_all_cleans_up_sessions() {
                 name: "A".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1527,6 +1589,8 @@ async fn dispose_all_cleans_up_sessions() {
                 name: "B".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1556,6 +1620,8 @@ async fn td_delete_team_stops_session() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1582,6 +1648,8 @@ async fn d9_ensure_session_kills_and_rebuilds_every_agent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1634,6 +1702,8 @@ async fn d9_ensure_session_persists_team_mcp_stdio_config() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1652,6 +1722,8 @@ async fn d9_ensure_session_is_idempotent() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1682,6 +1754,8 @@ async fn d9_ensure_session_rollbacks_when_build_fails() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1733,6 +1807,8 @@ async fn w4_d23_concurrent_add_agent_preserves_every_insertion() {
                     conversation_id: None,
                 }],
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await
@@ -1804,6 +1880,8 @@ async fn d115_remove_team_kills_every_agent_process() {
                 name: "T".into(),
                 agents: two_agent_input(),
                 workspace: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
             },
         )
         .await

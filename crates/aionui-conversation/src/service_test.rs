@@ -3053,6 +3053,8 @@ async fn get_backfills_legacy_row_and_persists() {
         channel_chat_id: None,
         pinned: false,
         pinned_at: None,
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
         created_at: 0,
         updated_at: 0,
     };
@@ -3101,6 +3103,8 @@ async fn list_backfills_mixed_rows() {
         channel_chat_id: None,
         pinned: false,
         pinned_at: None,
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
         created_at: 1,
         updated_at: 1,
     };
@@ -3121,6 +3125,8 @@ async fn list_backfills_mixed_rows() {
         channel_chat_id: None,
         pinned: false,
         pinned_at: None,
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
         created_at: 2,
         updated_at: 2,
     };

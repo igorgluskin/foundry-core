@@ -252,6 +252,8 @@ async fn exec_create_team(
             conversation_id: caller_conversation_id,
         }],
         workspace: None,
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
     };
 
     let team = match svc.create_team(&user_id, req).await {

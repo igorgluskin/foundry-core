@@ -91,8 +91,19 @@ async fn create_team(
     Ok((StatusCode::CREATED, Json(ApiResponse::ok(team))))
 }
 
-async fn list_teams(State(state): State<TeamRouterState>) -> Result<Json<ApiResponse<TeamListResponse>>, ApiError> {
-    let teams = state.service.list_teams().await?;
+// Foundry: Phase 3 (multi-project)
+#[derive(serde::Deserialize)]
+struct ListTeamsQuery {
+    #[serde(default)]
+    project_id: Option<String>,
+}
+
+// Foundry: Phase 3 (multi-project) — optional `project_id` query filter.
+async fn list_teams(
+    State(state): State<TeamRouterState>,
+    axum::extract::Query(query): axum::extract::Query<ListTeamsQuery>,
+) -> Result<Json<ApiResponse<TeamListResponse>>, ApiError> {
+    let teams = state.service.list_teams(query.project_id.as_deref()).await?;
     Ok(Json(ApiResponse::ok(teams)))
 }
 

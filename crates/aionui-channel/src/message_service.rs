@@ -151,6 +151,8 @@ impl ChannelMessageService {
             source: Some(source),
             channel_chat_id: session.chat_id.clone(),
             extra,
+            // Foundry: Phase 3 (multi-project) — channel-originated conversations have no project.
+            project_id: None,
         };
 
         let response = self

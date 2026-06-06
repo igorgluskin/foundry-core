@@ -1,6 +1,8 @@
 //! HTTP router assembly for the application.
 
 mod health;
+// Foundry: Phase 3 (multi-project)
+mod project;
 mod routes;
 mod state;
 mod trace;

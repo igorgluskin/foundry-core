@@ -172,6 +172,8 @@ impl IConversationRepository for StubConvRepo {
                 .to_string(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             }
@@ -202,6 +204,8 @@ impl IConversationRepository for StubConvRepo {
                 .to_string(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             }
@@ -232,6 +236,8 @@ impl IConversationRepository for StubConvRepo {
                 .to_string(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             }
@@ -262,6 +268,8 @@ impl IConversationRepository for StubConvRepo {
                 .to_string(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             }
@@ -292,6 +300,8 @@ impl IConversationRepository for StubConvRepo {
                 .to_string(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             }
@@ -308,6 +318,8 @@ impl IConversationRepository for StubConvRepo {
                 extra: "{}".into(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             }
@@ -336,6 +348,8 @@ impl IConversationRepository for StubConvRepo {
                 extra: "{}".into(),
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             });

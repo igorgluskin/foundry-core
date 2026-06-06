@@ -14,9 +14,10 @@ use aionui_conversation::{ConversationRouterState, ConversationService};
 use aionui_cron::{CronEventEmitter, CronRouterState};
 use aionui_db::{
     IAcpSessionRepository, IAgentMetadataRepository, IAssistantOverrideRepository, IAssistantRepository,
-    IProviderRepository, SqliteAcpSessionRepository, SqliteAgentMetadataRepository, SqliteAssistantOverrideRepository,
-    SqliteAssistantRepository, SqliteClientPreferenceRepository, SqliteConversationRepository,
-    SqliteProviderRepository, SqliteRemoteAgentRepository, SqliteSettingsRepository,
+    IProjectRepository, IProviderRepository, SqliteAcpSessionRepository, SqliteAgentMetadataRepository,
+    SqliteAssistantOverrideRepository, SqliteAssistantRepository, SqliteClientPreferenceRepository,
+    SqliteConversationRepository, SqliteProjectRepository, SqliteProviderRepository, SqliteRemoteAgentRepository,
+    SqliteSettingsRepository,
 };
 use aionui_extension::{
     AssistantRuleDispatcher, ExtensionRegistry, ExtensionRouterState, ExtensionStateStore, ExternalPathsManager,
@@ -40,6 +41,8 @@ use aionui_system::{
 };
 use aionui_team::{TeamRouterState, TeamSessionService};
 
+// Foundry: Phase 3 (multi-project)
+use super::project::ProjectRouterState;
 use crate::config::derive_encryption_key;
 use crate::services::AppServices;
 
@@ -61,6 +64,8 @@ pub struct ModuleStates {
     pub skill: SkillRouterState,
     pub channel: ChannelRouterState,
     pub team: TeamRouterState,
+    // Foundry: Phase 3 (multi-project)
+    pub project: ProjectRouterState,
     pub cron: CronRouterState,
     pub office: OfficeRouterState,
     pub shell: ShellRouterState,
@@ -206,6 +211,8 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
                 services.guide_mcp_config.clone(),
             )
         }),
+        // Foundry: Phase 3 (multi-project)
+        project: build_module_state_phase(&boot, "project", || build_project_state(services)),
         cron,
         office: build_module_state_phase(&boot, "office", || build_office_state(services)),
         shell: build_module_state_phase(&boot, "shell", || build_shell_state(services)),
@@ -537,6 +544,14 @@ pub fn build_team_state(
         guide_mcp_config,
     );
     TeamRouterState { service }
+}
+
+/// Foundry: Phase 3 (multi-project)
+/// Build the default `ProjectRouterState` from application services.
+pub fn build_project_state(services: &AppServices) -> ProjectRouterState {
+    let pool = services.database.pool().clone();
+    let repo: Arc<dyn IProjectRepository> = Arc::new(SqliteProjectRepository::new(pool));
+    ProjectRouterState { repo }
 }
 
 /// Build the default `CronRouterState` from application services.

@@ -32,7 +32,10 @@ pub trait ITeamRepository: Send + Sync {
     async fn create_team(&self, row: &TeamRow) -> Result<(), DbError>;
 
     /// Returns all teams ordered by creation time ascending.
-    async fn list_teams(&self) -> Result<Vec<TeamRow>, DbError>;
+    ///
+    /// Foundry: Phase 3 (multi-project) — when `project_id` is `Some`, only
+    /// teams associated with that project are returned; `None` returns all.
+    async fn list_teams(&self, project_id: Option<&str>) -> Result<Vec<TeamRow>, DbError>;
 
     /// Returns a single team by id, or `None` if not found.
     async fn get_team(&self, team_id: &str) -> Result<Option<TeamRow>, DbError>;

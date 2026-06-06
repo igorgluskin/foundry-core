@@ -7,6 +7,8 @@ pub mod conversation;
 pub mod cron;
 pub mod mcp_server;
 pub mod oauth_token;
+// Foundry: Phase 3 (multi-project)
+pub mod project;
 pub mod provider;
 pub mod remote_agent;
 mod settings;
@@ -19,6 +21,8 @@ mod sqlite_conversation;
 mod sqlite_cron;
 mod sqlite_mcp_server;
 mod sqlite_oauth_token;
+// Foundry: Phase 3 (multi-project)
+mod sqlite_project;
 mod sqlite_provider;
 mod sqlite_remote_agent;
 mod sqlite_settings;
@@ -36,6 +40,8 @@ pub use conversation::IConversationRepository;
 pub use cron::ICronRepository;
 pub use mcp_server::IMcpServerRepository;
 pub use oauth_token::IOAuthTokenRepository;
+// Foundry: Phase 3 (multi-project)
+pub use project::{IProjectRepository, UpdateProjectParams};
 pub use provider::IProviderRepository;
 pub use remote_agent::IRemoteAgentRepository;
 pub use settings::ISettingsRepository;
@@ -48,6 +54,8 @@ pub use sqlite_conversation::SqliteConversationRepository;
 pub use sqlite_cron::SqliteCronRepository;
 pub use sqlite_mcp_server::SqliteMcpServerRepository;
 pub use sqlite_oauth_token::SqliteOAuthTokenRepository;
+// Foundry: Phase 3 (multi-project)
+pub use sqlite_project::SqliteProjectRepository;
 pub use sqlite_provider::SqliteProviderRepository;
 pub use sqlite_remote_agent::SqliteRemoteAgentRepository;
 pub use sqlite_settings::SqliteSettingsRepository;

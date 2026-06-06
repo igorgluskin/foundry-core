@@ -287,6 +287,8 @@ pub fn search_row_to_item(row: MessageSearchRow, data_dir: &Path) -> Result<Mess
         channel_chat_id: row.conversation_channel_chat_id,
         pinned: row.conversation_pinned,
         pinned_at: row.conversation_pinned_at,
+        // Foundry: Phase 3 (multi-project) — message-search row carries no project_id.
+        project_id: None,
         created_at: row.conversation_created_at,
         updated_at: row.conversation_updated_at,
     };
@@ -328,6 +330,8 @@ mod tests {
             channel_chat_id: None,
             pinned: false,
             pinned_at: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 1000,
             updated_at: 2000,
         }
@@ -382,6 +386,8 @@ mod tests {
             channel_chat_id: None,
             pinned: false,
             pinned_at: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 1000,
             updated_at: 2000,
         };
@@ -478,6 +484,8 @@ mod tests {
             channel_chat_id: Some("chat:1".into()),
             pinned: true,
             pinned_at: Some(5000),
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 1000,
             updated_at: 3000,
         };

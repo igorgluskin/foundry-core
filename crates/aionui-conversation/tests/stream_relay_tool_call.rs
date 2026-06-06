@@ -29,6 +29,8 @@ async fn setup_repo() -> (Arc<SqliteConversationRepository>, aionui_db::Database
         channel_chat_id: None,
         pinned: false,
         pinned_at: None,
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
         created_at: now,
         updated_at: now,
     })

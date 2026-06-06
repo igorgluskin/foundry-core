@@ -509,6 +509,8 @@ impl ConversationService {
             channel_chat_id: req.channel_chat_id,
             pinned: false,
             pinned_at: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: req.project_id,
             created_at: now,
             updated_at: now,
         };
@@ -638,6 +640,8 @@ impl ConversationService {
             source: query.source,
             cron_job_id: query.cron_job_id,
             pinned: query.pinned,
+            // Foundry: Phase 3 (multi-project)
+            project_id: query.project_id,
         };
 
         let result = self.conversation_repo.list_paginated(user_id, &filters).await?;

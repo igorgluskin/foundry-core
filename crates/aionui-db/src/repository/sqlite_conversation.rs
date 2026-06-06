@@ -34,11 +34,12 @@ impl IConversationRepository for SqliteConversationRepository {
     }
 
     async fn create(&self, row: &ConversationRow) -> Result<(), DbError> {
+        // Foundry: Phase 3 (multi-project) — `project_id` added to the column list.
         sqlx::query(
             "INSERT INTO conversations \
                 (id, user_id, name, type, extra, model, status, source, \
-                 channel_chat_id, pinned, pinned_at, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 channel_chat_id, pinned, pinned_at, project_id, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&row.user_id)
@@ -51,6 +52,8 @@ impl IConversationRepository for SqliteConversationRepository {
         .bind(&row.channel_chat_id)
         .bind(row.pinned)
         .bind(row.pinned_at)
+        // Foundry: Phase 3 (multi-project)
+        .bind(&row.project_id)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&self.pool)
@@ -683,6 +686,11 @@ fn append_filter_conditions(filters: &ConversationFilters, where_parts: &mut Vec
         where_parts.push("c.pinned = ?".to_string());
         binds.push(BindValue::Bool(pinned));
     }
+    // Foundry: Phase 3 (multi-project)
+    if let Some(ref project_id) = filters.project_id {
+        where_parts.push("c.project_id = ?".to_string());
+        binds.push(BindValue::Str(project_id.clone()));
+    }
 }
 
 /// Builds a count query and bind values for the total (ignoring cursor).
@@ -735,6 +743,8 @@ mod tests {
             channel_chat_id: None,
             pinned: false,
             pinned_at: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: now,
             updated_at: now,
         }

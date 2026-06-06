@@ -16,6 +16,12 @@ pub struct TeamRow {
     pub lead_agent_id: Option<String>,
     pub session_mode: Option<String>,
     pub agents_version: String,
+    // Foundry: Phase 3 (multi-project)
+    /// Optional project association (FK → projects.id, ON DELETE SET NULL).
+    /// `#[sqlx(default)]` so rows selected before migration 010 (or via
+    /// queries that omit the column) decode to `None` instead of erroring.
+    #[sqlx(default)]
+    pub project_id: Option<String>,
     pub created_at: TimestampMs,
     pub updated_at: TimestampMs,
 }
@@ -80,6 +86,8 @@ mod tests {
             lead_agent_id: None,
             session_mode: None,
             agents_version: "1.0.1".into(),
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 0,
             updated_at: 0,
         };

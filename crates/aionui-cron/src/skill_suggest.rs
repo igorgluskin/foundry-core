@@ -190,6 +190,8 @@ mod tests {
             channel_chat_id: None,
             pinned: false,
             pinned_at: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: now_ms(),
             updated_at: now_ms(),
         }

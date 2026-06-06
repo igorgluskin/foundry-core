@@ -9,6 +9,8 @@ mod cron_job;
 mod mcp_server;
 mod message;
 mod oauth_token;
+// Foundry: Phase 3 (multi-project)
+mod project;
 mod provider;
 mod remote_agent;
 mod system_settings;
@@ -28,6 +30,8 @@ pub use cron_job::CronJobRow;
 pub use mcp_server::McpServerRow;
 pub use message::MessageRow;
 pub use oauth_token::OAuthTokenRow;
+// Foundry: Phase 3 (multi-project)
+pub use project::ProjectRow;
 pub use provider::Provider;
 pub use remote_agent::RemoteAgentRow;
 pub use system_settings::SystemSettings;

@@ -34,6 +34,10 @@ pub struct CreateConversationRequest {
     pub source: Option<ConversationSource>,
     pub channel_chat_id: Option<String>,
     pub extra: serde_json::Value,
+    // Foundry: Phase 3 (multi-project)
+    /// Optional project association applied to the new conversation row.
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 /// Body for `PATCH /api/conversations/:id`.
@@ -107,6 +111,9 @@ pub struct ListConversationsQuery {
     pub source: Option<String>,
     pub cron_job_id: Option<String>,
     pub pinned: Option<bool>,
+    // Foundry: Phase 3 (multi-project)
+    /// Filter conversations by associated project id.
+    pub project_id: Option<String>,
 }
 
 /// Query parameters for `GET /api/conversations/:id/messages`.

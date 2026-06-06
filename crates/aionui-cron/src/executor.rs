@@ -441,6 +441,8 @@ impl JobExecutor {
             source: None,
             channel_chat_id: None,
             extra,
+            // Foundry: Phase 3 (multi-project) — cron-created conversations have no project.
+            project_id: None,
         };
 
         let response = self
@@ -2423,6 +2425,8 @@ mod tests {
                 channel_chat_id: None,
                 pinned: false,
                 pinned_at: None,
+                // Foundry: Phase 3 (multi-project)
+                project_id: None,
                 created_at: 0,
                 updated_at: 0,
             }))
@@ -2550,6 +2554,8 @@ mod tests {
                     channel_chat_id: None,
                     pinned: false,
                     pinned_at: None,
+                    // Foundry: Phase 3 (multi-project)
+                    project_id: None,
                     created_at: 0,
                     updated_at: 0,
                 },

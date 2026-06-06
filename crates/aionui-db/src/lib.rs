@@ -12,6 +12,10 @@ pub use models::{
     AgentMetadataRow, AssistantOverrideRow, AssistantRow, ConversationArtifactRow, CreateAssistantParams,
     UpdateAgentHandshakeParams, UpdateAssistantParams, UpsertAgentMetadataParams, UpsertOverrideParams,
 };
+// Foundry: Phase 3 (multi-project)
+pub use models::ProjectRow;
+// Foundry: Phase 3 (multi-project)
+pub use repository::project::UpdateProjectParams;
 pub use repository::channel::UpdatePluginStatusParams;
 pub use repository::conversation::{
     ConversationFilters, ConversationRowUpdate, MessageRowUpdate, MessageSearchRow, SortOrder,
@@ -25,12 +29,13 @@ pub use repository::team::{UpdateTaskParams, UpdateTeamParams};
 pub use repository::{
     CreateAcpSessionParams, IAcpSessionRepository, IAgentMetadataRepository, IAssistantOverrideRepository,
     IAssistantRepository, IChannelRepository, IClientPreferenceRepository, IConversationRepository, ICronRepository,
-    IMcpServerRepository, IOAuthTokenRepository, IProviderRepository, IRemoteAgentRepository, ISettingsRepository,
-    ITeamRepository, IUserRepository, PersistedSessionState, SaveRuntimeStateParams, SqliteAcpSessionRepository,
-    SqliteAgentMetadataRepository, SqliteAssistantOverrideRepository, SqliteAssistantRepository,
-    SqliteChannelRepository, SqliteClientPreferenceRepository, SqliteConversationRepository, SqliteCronRepository,
-    SqliteMcpServerRepository, SqliteOAuthTokenRepository, SqliteProviderRepository, SqliteRemoteAgentRepository,
-    SqliteSettingsRepository, SqliteTeamRepository, SqliteUserRepository,
+    IMcpServerRepository, IOAuthTokenRepository, IProjectRepository, IProviderRepository, IRemoteAgentRepository,
+    ISettingsRepository, ITeamRepository, IUserRepository, PersistedSessionState, SaveRuntimeStateParams,
+    SqliteAcpSessionRepository, SqliteAgentMetadataRepository, SqliteAssistantOverrideRepository,
+    SqliteAssistantRepository, SqliteChannelRepository, SqliteClientPreferenceRepository, SqliteConversationRepository,
+    SqliteCronRepository, SqliteMcpServerRepository, SqliteOAuthTokenRepository, SqliteProjectRepository,
+    SqliteProviderRepository, SqliteRemoteAgentRepository, SqliteSettingsRepository, SqliteTeamRepository,
+    SqliteUserRepository,
 };
 
 // Re-export sqlx pool type for downstream crates

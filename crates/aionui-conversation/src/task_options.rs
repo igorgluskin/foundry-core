@@ -106,6 +106,8 @@ mod tests {
             channel_chat_id: None,
             pinned: false,
             pinned_at: None,
+            // Foundry: Phase 3 (multi-project)
+            project_id: None,
             created_at: 0,
             updated_at: 0,
         }

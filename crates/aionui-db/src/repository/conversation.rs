@@ -178,6 +178,9 @@ pub struct ConversationFilters {
     pub cron_job_id: Option<String>,
     /// Filter by pinned status.
     pub pinned: Option<bool>,
+    // Foundry: Phase 3 (multi-project)
+    /// Filter by associated project (`conversations.project_id`).
+    pub project_id: Option<String>,
 }
 
 impl ConversationFilters {

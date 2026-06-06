@@ -25,6 +25,8 @@ fn make_conversation(suffix: &str) -> ConversationRow {
         channel_chat_id: None,
         pinned: false,
         pinned_at: None,
+        // Foundry: Phase 3 (multi-project)
+        project_id: None,
         created_at: now,
         updated_at: now,
     }

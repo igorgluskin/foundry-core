@@ -22,9 +22,10 @@ impl ITeamRepository for SqliteTeamRepository {
     // ── Team CRUD ────────────────────────────────────────────────────
 
     async fn create_team(&self, row: &TeamRow) -> Result<(), DbError> {
+        // Foundry: Phase 3 (multi-project) — `project_id` added to the column list.
         sqlx::query(
-            "INSERT INTO teams (id, user_id, name, workspace, workspace_mode, agents, lead_agent_id, session_mode, agents_version, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO teams (id, user_id, name, workspace, workspace_mode, agents, lead_agent_id, session_mode, agents_version, project_id, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&row.id)
         .bind(&row.user_id)
@@ -35,6 +36,8 @@ impl ITeamRepository for SqliteTeamRepository {
         .bind(&row.lead_agent_id)
         .bind(&row.session_mode)
         .bind(&row.agents_version)
+        // Foundry: Phase 3 (multi-project)
+        .bind(&row.project_id)
         .bind(row.created_at)
         .bind(row.updated_at)
         .execute(&self.pool)
@@ -42,10 +45,21 @@ impl ITeamRepository for SqliteTeamRepository {
         Ok(())
     }
 
-    async fn list_teams(&self) -> Result<Vec<TeamRow>, DbError> {
-        let rows = sqlx::query_as::<_, TeamRow>("SELECT * FROM teams ORDER BY created_at ASC")
-            .fetch_all(&self.pool)
-            .await?;
+    // Foundry: Phase 3 (multi-project) — optional `project_id` filter.
+    async fn list_teams(&self, project_id: Option<&str>) -> Result<Vec<TeamRow>, DbError> {
+        let rows = match project_id {
+            Some(project_id) => {
+                sqlx::query_as::<_, TeamRow>("SELECT * FROM teams WHERE project_id = ? ORDER BY created_at ASC")
+                    .bind(project_id)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            None => {
+                sqlx::query_as::<_, TeamRow>("SELECT * FROM teams ORDER BY created_at ASC")
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+        };
         Ok(rows)
     }
 

@@ -442,7 +442,7 @@ pub(crate) async fn dispatch_tool(
             exec_shutdown_agent(arguments, scheduler, service, team_id, caller_slot_id, caller_role).await
         }
         "team_list_models" => exec_list_models(arguments, service).await,
-        "team_describe_assistant" => exec_describe_assistant(arguments).await,
+        "team_describe_assistant" => exec_describe_assistant(arguments, service).await,
         _ => Err(format!("Unknown tool: {tool_name}")),
     }
 }
@@ -457,8 +457,13 @@ async fn exec_list_models(args: &Value, service: &Weak<TeamSessionService>) -> R
     serde_json::to_string_pretty(&value).map_err(|e| format!("Serialization error: {e}"))
 }
 
-async fn exec_describe_assistant(args: &Value) -> Result<String, String> {
-    Ok(handle_team_describe_assistant(args))
+async fn exec_describe_assistant(args: &Value, service: &Weak<TeamSessionService>) -> Result<String, String> {
+    // Foundry R1: real lookup via the wired AssistantService. Falls back to the
+    // not-found text when no service is reachable (e.g. unit tests).
+    match service.upgrade() {
+        Some(svc) => Ok(svc.describe_assistant(args).await),
+        None => Ok(handle_team_describe_assistant(args)),
+    }
 }
 
 // ---------------------------------------------------------------------------

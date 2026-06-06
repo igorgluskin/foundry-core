@@ -209,6 +209,8 @@ pub async fn build_module_states(services: &AppServices) -> (ModuleStates, Chann
                 Some(cron.cron_service.clone()),
                 backend_binary_path.clone(),
                 services.guide_mcp_config.clone(),
+                // Foundry R1: share the AssistantService built above.
+                assistant.service.clone(),
             )
         }),
         // Foundry: Phase 3 (multi-project)
@@ -502,6 +504,10 @@ pub fn build_team_state(
     cron_service: Option<Arc<aionui_cron::service::CronService>>,
     backend_binary_path: Arc<std::path::PathBuf>,
     guide_mcp_config: Option<aionui_api_types::GuideMcpConfig>,
+    // Foundry R1: shared AssistantService so the team service can resolve the
+    // Role (= Assistant) catalog + persona bridge. Built once in
+    // `build_module_states` (the assistant state) and threaded in here.
+    assistant_service: Arc<AssistantService>,
 ) -> TeamRouterState {
     let pool = services.database.pool().clone();
     let team_repo: Arc<dyn aionui_db::ITeamRepository> = Arc::new(aionui_db::SqliteTeamRepository::new(pool.clone()));
@@ -533,7 +539,11 @@ pub fn build_team_state(
         conv_service.with_delete_hook(cron_service.clone());
         conv_service.with_cron_service(Some(cron_service));
     }
-    let service = TeamSessionService::new(
+    // Foundry R1: construct with the Role(assistant) service wired in. A
+    // post-construction setter is impossible because `new` uses
+    // `Arc::new_cyclic` (the Weak self-ref blocks `Arc::get_mut`), so the
+    // dependency is injected through the dedicated constructor instead.
+    let service = TeamSessionService::new_with_assistant(
         team_repo,
         Arc::new(SqliteAgentMetadataRepository::new(services.database.pool().clone())),
         Arc::new(SqliteProviderRepository::new(services.database.pool().clone())),
@@ -542,6 +552,7 @@ pub fn build_team_state(
         services.worker_task_manager.clone(),
         backend_binary_path,
         guide_mcp_config,
+        Some(assistant_service),
     );
     TeamRouterState { service }
 }

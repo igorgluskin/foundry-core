@@ -960,10 +960,15 @@ async fn tc4_first_agent_is_lead() {
     assert_eq!(resp.lead_agent_id, Some(resp.agents[0].slot_id.clone()));
 }
 
+// Foundry R1 (lazy session): creating a team with an empty roster is now
+// allowed — it produces a project orchestration session with no agents yet.
+// The first agent added/spawned is promoted to Lead (covered elsewhere). The
+// former `tc5_empty_agents_returns_error` (which asserted a rejection) is
+// inverted to assert the empty-session creation succeeds.
 #[tokio::test]
-async fn tc5_empty_agents_returns_error() {
+async fn tc5_empty_agents_creates_empty_session() {
     let svc = setup();
-    let result = svc
+    let resp = svc
         .create_team(
             "user1",
             CreateTeamRequest {
@@ -974,8 +979,10 @@ async fn tc5_empty_agents_returns_error() {
                 project_id: None,
             },
         )
-        .await;
-    assert!(result.is_err());
+        .await
+        .expect("empty team creation should now succeed (lazy session)");
+    assert!(resp.agents.is_empty(), "no agents should be persisted yet");
+    assert_eq!(resp.lead_agent_id, None, "a lead-less session has no lead pointer");
 }
 
 #[tokio::test]

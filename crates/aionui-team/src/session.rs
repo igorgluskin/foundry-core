@@ -62,16 +62,20 @@ pub struct SpawnAgentRequest {
 }
 
 // Foundry: Phase 2 (roles + capability tiers)
-/// Resolve a capability tier name to a `(backend, model)` pair.
+/// Resolve a capability tier name to a `(backend, model)` pair using the
+/// hardcoded default map.
 ///
 /// Tiers abstract over concrete backend/model choices so the lead can staff a
 /// teammate by intent (`smart` for an architect, `balanced` for an implementer)
 /// without naming a model. Returns `None` for an unknown tier so the caller
 /// falls back to explicit backend/model resolution.
 ///
-// Foundry: TODO read tier map from settings
-/// The map below is a hardcoded default; a future change should source it from
-/// user settings (per-team or global) instead of these constants.
+/// Foundry R1: this is now the **final fallback** in the tier-resolution
+/// precedence. The layered resolver
+/// [`TeamSessionService::resolve_tier_layered`] prefers (a) a settings-backed
+/// tier→(backend,model) map and (b) the resolved Role/Assistant's `models[]`
+/// before falling back to this map. Keep this function as the last resort so
+/// tiers always resolve to *something* broadly available.
 pub fn resolve_tier(tier: &str) -> Option<(String, String)> {
     // Defaults chosen to be conservative and broadly available. The backend is
     // always `claude` here; tiers differ by model strength. Adjust on a Rust
@@ -83,6 +87,26 @@ pub fn resolve_tier(tier: &str) -> Option<(String, String)> {
         _ => return None,
     };
     Some((backend.to_owned(), model.to_owned()))
+}
+
+/// Foundry R1: tier→model index for a Role's `models[]`, by position.
+///
+/// When a Role declares `models`, map a tier onto that list by intended
+/// strength: `fast` → first entry, `balanced` → middle entry, `smart` → last
+/// entry. This is intentionally simple — the canonical source for tier
+/// mappings is user settings (see `resolve_tier_layered`); this just lets a
+/// Role's own curated model list participate before the hardcoded fallback.
+pub(crate) fn tier_model_from_role_models(tier: &str, models: &[String]) -> Option<String> {
+    if models.is_empty() {
+        return None;
+    }
+    let idx = match tier.trim().to_lowercase().as_str() {
+        "fast" => 0,
+        "balanced" => models.len() / 2,
+        "smart" => models.len() - 1,
+        _ => return None,
+    };
+    models.get(idx).cloned()
 }
 
 pub struct TeamSession {
@@ -228,24 +252,33 @@ impl TeamSession {
         let first_message = if needs_role_prompt {
             let role_prompt = match agent.role {
                 TeammateRole::Lead => {
-                    let available_agent_types = match self.service.upgrade() {
-                        Some(svc) => svc.list_team_capable_backends().await,
-                        None => crate::guide::capability::TEAM_CAPABLE_BACKENDS
-                            .iter()
-                            .map(|b| {
-                                let mut c = b.chars();
-                                let display = match c.next() {
-                                    None => String::new(),
-                                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                                };
-                                (b.to_string(), display)
-                            })
-                            .collect(),
+                    // Foundry R1: source both the team-capable backend list and
+                    // the Role (= Assistant) catalog from the service.
+                    let (available_agent_types, available_assistants) = match self.service.upgrade() {
+                        Some(svc) => (
+                            svc.list_team_capable_backends().await,
+                            svc.list_available_assistants().await,
+                        ),
+                        None => (
+                            crate::guide::capability::TEAM_CAPABLE_BACKENDS
+                                .iter()
+                                .map(|b| {
+                                    let mut c = b.chars();
+                                    let display = match c.next() {
+                                        None => String::new(),
+                                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                                    };
+                                    (b.to_string(), display)
+                                })
+                                .collect(),
+                            Vec::new(),
+                        ),
                     };
                     build_lead_prompt(
                         &self.team.name,
                         &self.scheduler.list_agents().await,
                         &available_agent_types,
+                        &available_assistants,
                     )
                 }
                 TeammateRole::Teammate => build_teammate_prompt(&agent, &self.team.name),
@@ -678,51 +711,71 @@ impl TeamSession {
             return Err(TeamError::DuplicateAgentName(requested_name));
         }
 
+        // Step 3a': DB-facing service handle. Upgraded up-front so the layered
+        // tier resolver and the Role(assistant)->backend peek can both run.
+        let service = self
+            .service
+            .upgrade()
+            .ok_or_else(|| TeamError::InvalidRequest("spawn_agent requires a live TeamSessionService".into()))?;
+
         // Step 3: resolve backend/model. Base backend comes from the request
         // (or the caller's backend). A `tier` overrides backend+model unless an
         // explicit model was passed.
         // Foundry: Phase 2 (roles + capability tiers)
+        // Foundry R1 (Task 5): tier resolution is now layered — settings map →
+        // Role `models[]` → hardcoded default — via `resolve_tier_layered`.
         let explicit_model = req.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
-        let tier_resolved = req
-            .tier
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .and_then(resolve_tier);
+        let tier_resolved = match req.tier.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+            Some(t) => {
+                service
+                    .resolve_tier_layered(t, req.custom_agent_id.as_deref(), req.specialization.as_deref())
+                    .await
+            }
+            None => None,
+        };
         let tier_override = match (&tier_resolved, explicit_model) {
             // Tier present and no explicit model → tier wins on backend+model.
             (Some(tm), None) => Some(tm.clone()),
             _ => None,
         };
 
-        let backend = match &tier_override {
+        // Foundry R1: track whether the backend was deliberately chosen by the
+        // lead (explicit `agent_type` or a resolvable `tier`). When it was
+        // *not*, a resolved Role's `preset_agent_type` is allowed to drive the
+        // backend in `persist_spawned_agent`.
+        let explicit_agent_type = req
+            .agent_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let backend_explicit = tier_override.is_some() || explicit_agent_type.is_some();
+
+        let mut backend = match &tier_override {
             Some((tier_backend, _)) => tier_backend.clone(),
-            None => req
-                .agent_type
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .unwrap_or(caller.backend.as_str())
-                .to_owned(),
+            None => explicit_agent_type.unwrap_or(caller.backend.as_str()).to_owned(),
         };
+
+        // Foundry R1: when the lead did not pin a backend/tier and a Role
+        // (= Assistant) resolves from `custom_agent_id`/`role`, let the Role's
+        // `preset_agent_type` drive the backend. Resolved here (not only in
+        // `persist_spawned_agent`) so the capability gate below validates the
+        // backend that will actually be used.
+        if !backend_explicit
+            && let Some(role_backend) = service
+                .resolve_role_backend(req.custom_agent_id.as_deref(), req.specialization.as_deref())
+                .await
+        {
+            backend = role_backend;
+        }
 
         // Step 3b: backend capability check. Hard whitelist passes immediately;
         // otherwise query persisted agent_capabilities for MCP support.
         if !crate::guide::capability::TEAM_CAPABLE_BACKENDS.contains(&backend.as_str()) {
-            let capable = match self.service.upgrade() {
-                Some(svc) => svc.is_backend_team_capable(&backend).await,
-                None => false,
-            };
+            let capable = service.is_backend_team_capable(&backend).await;
             if !capable {
                 return Err(TeamError::BackendNotAllowed(backend));
             }
         }
-
-        // Step 4: DB side-effects (new conversation + persisted agent slot).
-        let service = self
-            .service
-            .upgrade()
-            .ok_or_else(|| TeamError::InvalidRequest("spawn_agent requires a live TeamSessionService".into()))?;
         let model = match (&tier_override, explicit_model) {
             // Explicit model always wins.
             (_, Some(m)) => m.to_owned(),
@@ -747,6 +800,13 @@ impl TeamSession {
                 req.custom_agent_id.clone(),
                 specialization,
                 tier,
+                // Foundry R1: `backend` is already final here — any Role-derived
+                // override was applied above before the capability gate — so
+                // tell `persist_spawned_agent` not to override it again.
+                // (`persist_spawned_agent` keeps its own override path for any
+                // future caller that passes `false`.) `backend_explicit` is
+                // still consulted there only to gate that fallback.
+                true,
             )
             .await?;
 

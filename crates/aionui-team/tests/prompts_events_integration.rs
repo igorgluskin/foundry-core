@@ -79,7 +79,8 @@ fn lp1_lead_prompt_contains_member_list() {
         make_agent("w2", "Bob", TeammateRole::Teammate),
     ];
     let types = default_agent_types();
-    let prompt = build_lead_prompt("Alpha", &members, &types);
+    // Foundry R1: `build_lead_prompt` gained an `available_assistants` slice.
+    let prompt = build_lead_prompt("Alpha", &members, &types, &[]);
 
     // AionUi bullet format: `- {name} ({backend}, status: {status})`
     assert!(prompt.contains("- Lead ("), "lead name missing");
@@ -91,7 +92,7 @@ fn lp1_lead_prompt_contains_member_list() {
 
 #[test]
 fn lp2_lead_prompt_contains_tool_descriptions() {
-    let prompt = build_lead_prompt("Beta", &[], &default_agent_types());
+    let prompt = build_lead_prompt("Beta", &[], &default_agent_types(), &[]);
 
     // AionUi lead prompt references the `team_*` coordination tools that the
     // leader must use; the MCP layer enumerates them with arguments, so the
@@ -115,7 +116,7 @@ fn lp2_lead_prompt_contains_tool_descriptions() {
 
 #[test]
 fn lp3_lead_prompt_contains_task_management_guidance() {
-    let prompt = build_lead_prompt("Gamma", &[], &default_agent_types());
+    let prompt = build_lead_prompt("Gamma", &[], &default_agent_types(), &[]);
 
     assert!(
         prompt.contains("Break the work into tasks"),

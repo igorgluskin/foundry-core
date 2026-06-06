@@ -1,7 +1,37 @@
 use super::*;
-use aionui_api_types::BehaviorPolicy;
+use aionui_api_types::{AssistantResponse, BehaviorPolicy};
 use aionui_common::AgentType;
 use aionui_common::constants::{TEAM_CAPABLE_BACKENDS, has_mcp_capability};
+
+/// Foundry R1: locale used when reading an Assistant (Role) rule body for
+/// persona injection. The builtin manifest declares `rule_file` as
+/// `rules/{id}.{locale}.md`; `en-US` is the canonical shipped locale and the
+/// only one guaranteed present for every builtin Role (the Orchestrator ships
+/// `en-US`). A future change can thread the team's UI locale through here.
+const ROLE_PERSONA_LOCALE: &str = "en-US";
+
+/// Foundry R1: persona fields resolved from a Role (= Assistant) for a spawn.
+///
+/// Produced by [`TeamSessionService::resolve_role_persona`] and folded into the
+/// spawned conversation's `extra` so the existing first-message injector
+/// (`agent_build_extra.rs` → `acp_assembler.rs::compose_preset_context` →
+/// `first_message_injector.rs`) applies the persona with no agent-side change.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RolePersona {
+    /// Resolved assistant id (echoed into `extra.preset_assistant_id`).
+    pub assistant_id: String,
+    /// Rule markdown body → `extra.preset_context`. Empty when the Role
+    /// declares no rule (then no `[Assistant Rules]` block is injected).
+    pub preset_context: String,
+    /// Effective skills snapshot → `extra.skills`:
+    /// `enabled_skills` + `custom_skill_names` − `disabled_builtin_skills`.
+    pub skills: Vec<String>,
+    /// The Role's `preset_agent_type`; used to derive the spawn backend when
+    /// the lead did not pass an explicit backend/tier override.
+    pub preset_agent_type: String,
+    /// The Role's configured `models[]` (Task 5 fallback for tier resolution).
+    pub models: Vec<String>,
+}
 
 /// Known ACP vendor labels. Kept in lockstep with the `agent_metadata`
 /// seed in `005_agent_metadata.sql` — a caller hitting an unknown
@@ -228,7 +258,254 @@ impl TeamSessionService {
     /// The lock is *not* held across the process warmup step — callers
     /// (`TeamSession::spawn_agent`) wire that up separately so a slow
     /// `warmup` never stalls other spawns against the same team.
+    /// Foundry R1: compute a Role's (= Assistant's) effective skills snapshot.
+    ///
+    /// `enabled_skills` + `custom_skill_names`, minus any
+    /// `disabled_builtin_skills`. Order-preserving and de-duplicated. This is
+    /// the same set the standalone assistant path injects via
+    /// `conversation.extra.skills`.
+    pub(crate) fn role_skills_snapshot(resp: &AssistantResponse) -> Vec<String> {
+        let disabled: std::collections::HashSet<&str> =
+            resp.disabled_builtin_skills.iter().map(String::as_str).collect();
+        let mut out: Vec<String> = Vec::new();
+        for name in resp.enabled_skills.iter().chain(resp.custom_skill_names.iter()) {
+            if disabled.contains(name.as_str()) {
+                continue;
+            }
+            if !out.iter().any(|s| s == name) {
+                out.push(name.clone());
+            }
+        }
+        out
+    }
+
+    /// Foundry R1: resolve a spawn request's `custom_agent_id` (or, failing
+    /// that, `specialization`) to a Role (= Assistant) and load its persona.
+    ///
+    /// Returns `None` when no assistant service is wired, when neither
+    /// candidate id resolves to a known assistant, or on lookup error (logged,
+    /// non-fatal — the spawn proceeds as a plain backend agent). The lead's
+    /// catalog only advertises ids that resolve, so the common path hits the
+    /// `custom_agent_id` branch.
+    pub(crate) async fn resolve_role_persona(
+        &self,
+        custom_agent_id: Option<&str>,
+        specialization: Option<&str>,
+    ) -> Option<RolePersona> {
+        let svc = self.assistant_service()?;
+
+        // Prefer an explicit `custom_agent_id`; otherwise treat the
+        // `specialization` as a candidate assistant id (a Role named e.g.
+        // "orchestrator"). Skip blank candidates.
+        let candidates = [custom_agent_id, specialization]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        for candidate in candidates {
+            let resp = match svc.get(candidate).await {
+                Ok(resp) => resp,
+                Err(aionui_assistant::AssistantError::NotFound(_)) => continue,
+                Err(e) => {
+                    warn!(candidate, error = %e, "resolve_role_persona: assistant lookup failed (non-fatal)");
+                    continue;
+                }
+            };
+
+            // Rule body is best-effort: an empty rule simply means no
+            // `[Assistant Rules]` block is injected downstream.
+            let preset_context = match svc.read_rule(candidate, Some(ROLE_PERSONA_LOCALE)).await {
+                Ok(body) => body,
+                Err(e) => {
+                    warn!(candidate, error = %e, "resolve_role_persona: read_rule failed; injecting persona without rule body");
+                    String::new()
+                }
+            };
+
+            return Some(RolePersona {
+                assistant_id: resp.id.clone(),
+                preset_context,
+                skills: Self::role_skills_snapshot(&resp),
+                preset_agent_type: resp.preset_agent_type.clone(),
+                models: resp.models.clone(),
+            });
+        }
+        None
+    }
+
+    /// Foundry R1: build the Role (= Assistant) catalog for the lead prompt's
+    /// "Available Preset Assistants for Spawning" section. Returns every
+    /// enabled assistant mapped to the prompt's [`AvailableAssistant`] shape.
+    /// Empty when no assistant service is wired or the list call fails
+    /// (degrades to today's behaviour: the section is omitted).
+    pub(crate) async fn list_available_assistants(&self) -> Vec<crate::prompts::lead::AvailableAssistant> {
+        let Some(svc) = self.assistant_service() else {
+            return Vec::new();
+        };
+        let list = match svc.list().await {
+            Ok(list) => list,
+            Err(e) => {
+                warn!(error = %e, "list_available_assistants: assistant list failed (non-fatal)");
+                return Vec::new();
+            }
+        };
+        list.iter()
+            .filter(|a| a.enabled)
+            .map(|a| crate::prompts::lead::AvailableAssistant {
+                custom_agent_id: a.id.clone(),
+                name: a.name.clone(),
+                backend: a.preset_agent_type.clone(),
+                description: a.description.clone().unwrap_or_default(),
+                skills: Self::role_skills_snapshot(a),
+            })
+            .collect()
+    }
+
+    /// Foundry R1: real `team_describe_assistant` implementation. Looks the
+    /// assistant up by `custom_agent_id` (the MCP arg) via the wired
+    /// `AssistantService` and renders a human-readable card (name, backend,
+    /// description, skills, example prompts). Returns the not-found text when
+    /// the id is absent/blank/unknown or no service is wired — preserving the
+    /// stub's contract for callers that depend on it.
+    pub async fn describe_assistant(&self, args: &serde_json::Value) -> String {
+        let id = args
+            .get("custom_agent_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(id) = id else {
+            return "Preset assistant not found".to_owned();
+        };
+        let Some(svc) = self.assistant_service() else {
+            return "Preset assistant not found".to_owned();
+        };
+        let resp = match svc.get(id).await {
+            Ok(resp) => resp,
+            Err(_) => return "Preset assistant not found".to_owned(),
+        };
+
+        let skills = Self::role_skills_snapshot(&resp);
+        let mut out = String::with_capacity(512);
+        out.push_str(&format!("# {} (`{}`)\n", resp.name, resp.id));
+        out.push_str(&format!("- backend: `{}`\n", resp.preset_agent_type));
+        if let Some(desc) = resp.description.as_deref().filter(|d| !d.is_empty()) {
+            out.push_str(&format!("- description: {desc}\n"));
+        }
+        if !skills.is_empty() {
+            out.push_str(&format!("- skills: {}\n", skills.join(", ")));
+        }
+        if !resp.models.is_empty() {
+            out.push_str(&format!("- models: {}\n", resp.models.join(", ")));
+        }
+        if !resp.prompts.is_empty() {
+            out.push_str("\n## Example tasks\n");
+            for p in &resp.prompts {
+                out.push_str(&format!("- {p}\n"));
+            }
+        }
+        out.push_str(
+            "\nTo spawn this assistant, call `team_spawn_agent` with \
+             `custom_agent_id` set to its id above. The agent type is derived \
+             from its backend automatically.",
+        );
+        out
+    }
+
+    /// Foundry R1 (Task 5): layered tier→(backend, model) resolution.
+    ///
+    /// Precedence (first hit wins):
+    ///   (a) a settings-backed tier→(backend, model) map — **flagged TODO**:
+    ///       the team service has no settings repo wired yet, so this layer is
+    ///       a no-op hook today. When a `SettingsService`/tier-map repo is
+    ///       threaded in, resolve it here BEFORE (b)/(c).
+    ///   (b) the resolved Role/Assistant's `models[]`: backend from the Role's
+    ///       `preset_agent_type`, model picked by tier via
+    ///       [`crate::session::tier_model_from_role_models`].
+    ///   (c) the hardcoded default map [`crate::session::resolve_tier`]
+    ///       (final fallback).
+    ///
+    /// `custom_agent_id`/`specialization` identify the Role for layer (b).
+    /// Returns `None` only when the tier is unknown to every layer.
+    pub(crate) async fn resolve_tier_layered(
+        &self,
+        tier: &str,
+        custom_agent_id: Option<&str>,
+        specialization: Option<&str>,
+    ) -> Option<(String, String)> {
+        let tier_trimmed = tier.trim();
+        if tier_trimmed.is_empty() {
+            return None;
+        }
+
+        // (a) Settings-backed map — flagged TODO; no settings source on the
+        // team service yet. Intentionally left as a hook so the precedence is
+        // documented and a future wiring slots in here without touching
+        // callers. When added, return early on a hit.
+        // Foundry R1 TODO: read tier map from settings and resolve here first.
+
+        // (b) Role's own curated `models[]`.
+        if let Some(svc) = self.assistant_service() {
+            let candidates = [custom_agent_id, specialization]
+                .into_iter()
+                .flatten()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            for candidate in candidates {
+                if let Ok(resp) = svc.get(candidate).await
+                    && let Some(model) = crate::session::tier_model_from_role_models(tier_trimmed, &resp.models)
+                {
+                    let backend = if resp.preset_agent_type.trim().is_empty() {
+                        "claude".to_owned()
+                    } else {
+                        resp.preset_agent_type.clone()
+                    };
+                    return Some((backend, model));
+                }
+            }
+        }
+
+        // (c) Hardcoded default map — final fallback.
+        crate::session::resolve_tier(tier_trimmed)
+    }
+
+    /// Foundry R1: resolve the backend a Role (= Assistant) implies, without
+    /// reading its rule body. Lightweight peek used by `spawn_agent` so the
+    /// backend-capability gate validates the *actual* backend that the persona
+    /// bridge in `persist_spawned_agent` will use. Returns the trimmed,
+    /// non-empty `preset_agent_type` of the first resolving candidate.
+    pub(crate) async fn resolve_role_backend(
+        &self,
+        custom_agent_id: Option<&str>,
+        specialization: Option<&str>,
+    ) -> Option<String> {
+        let svc = self.assistant_service()?;
+        let candidates = [custom_agent_id, specialization]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        for candidate in candidates {
+            match svc.get(candidate).await {
+                Ok(resp) => {
+                    let t = resp.preset_agent_type.trim();
+                    if !t.is_empty() {
+                        return Some(t.to_owned());
+                    }
+                }
+                Err(aionui_assistant::AssistantError::NotFound(_)) => continue,
+                Err(e) => {
+                    warn!(candidate, error = %e, "resolve_role_backend: assistant lookup failed (non-fatal)");
+                    continue;
+                }
+            }
+        }
+        None
+    }
+
     // Foundry: Phase 2 (roles + capability tiers) — added `specialization`/`tier`
+    // Foundry R1: added `backend_explicit` so the Role's `preset_agent_type`
+    // can drive the spawn backend only when the lead did not pin one.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_spawned_agent(
         &self,
@@ -240,6 +517,10 @@ impl TeamSessionService {
         custom_agent_id: Option<String>,
         specialization: Option<String>,
         tier: Option<String>,
+        // Foundry R1: true when the lead passed an explicit `agent_type` or a
+        // resolvable `tier` (i.e. the backend was deliberately chosen). When
+        // false, a resolved Role's `preset_agent_type` may override `backend`.
+        backend_explicit: bool,
     ) -> Result<TeamAgent, TeamError> {
         let lock = self
             .add_agent_locks
@@ -255,6 +536,40 @@ impl TeamSessionService {
             .ok_or_else(|| TeamError::TeamNotFound(team_id.into()))?;
         let mut team = Team::from_row(&row)?;
 
+        // Foundry R1 (lazy session): the first instance spawned into a
+        // lead-less project session is promoted to Lead. Decided here so the
+        // promotion can also drive the default lead persona below.
+        let has_lead = team.agents.iter().any(|a| a.role == TeammateRole::Lead);
+        let role = if has_lead {
+            TeammateRole::Teammate
+        } else {
+            TeammateRole::Lead
+        };
+
+        // Foundry R1: the Orchestrator is the default lead persona. When this
+        // spawn is promoted to Lead and the caller did not pin a Role, default
+        // `custom_agent_id` to `orchestrator` so the persona bridge injects the
+        // lead delegation rule. A non-lead spawn keeps its caller-supplied id.
+        let custom_agent_id = match (&role, custom_agent_id) {
+            (TeammateRole::Lead, None) => Some("orchestrator".to_owned()),
+            (_, other) => other,
+        };
+
+        // Foundry R1: Role(assistant)->spawn persona bridge.
+        // Resolve the Role from `custom_agent_id` (or `specialization`) and,
+        // when present, (a) derive the backend from its `preset_agent_type`
+        // unless the lead pinned one, and (b) fold persona fields into `extra`
+        // so the existing first-message injector applies them.
+        let persona = self
+            .resolve_role_persona(custom_agent_id.as_deref(), specialization.as_deref())
+            .await;
+        let backend = match (&persona, backend_explicit) {
+            // Role resolved, no explicit lead override, and the Role declares a
+            // non-empty agent type → the Role's persona dictates the backend.
+            (Some(p), false) if !p.preset_agent_type.trim().is_empty() => p.preset_agent_type.clone(),
+            _ => backend,
+        };
+
         let agent_type = parse_agent_type(&backend)?;
         let provider_id = if agent_type == AgentType::Aionrs {
             self.resolve_provider_for_model(&model).await.unwrap_or(backend.clone())
@@ -263,7 +578,7 @@ impl TeamSessionService {
         };
         // Top-level `model` is aionrs-only per spec 2026-05-12; for other
         // agent types the model/provider ride along in `extra`.
-        let (top_level_model, extra) = if agent_type == AgentType::Aionrs {
+        let (top_level_model, mut extra) = if agent_type == AgentType::Aionrs {
             (
                 Some(ProviderWithModel {
                     provider_id,
@@ -286,6 +601,27 @@ impl TeamSessionService {
                 }),
             )
         };
+
+        // Foundry R1: inject the Role persona into `extra`. These are exactly
+        // the keys the standalone assistant path sets and that
+        // `AcpBuildExtra`/`AionrsBuildExtra` deserialize:
+        //   - `preset_context`   → first-message `[Assistant Rules]` block
+        //   - `skills`           → skills index resolved by the injector
+        //   - `preset_assistant_id` → provenance for downstream tooling
+        // Only `preset_context` rides the agent build path today; `skills` and
+        // `preset_assistant_id` are read by the same pipeline. Empty fields are
+        // omitted so a Role without a rule/skills behaves like a plain spawn.
+        if let Some(p) = &persona {
+            if let Some(obj) = extra.as_object_mut() {
+                obj.insert("preset_assistant_id".into(), serde_json::json!(p.assistant_id));
+                if !p.preset_context.trim().is_empty() {
+                    obj.insert("preset_context".into(), serde_json::json!(p.preset_context));
+                }
+                if !p.skills.is_empty() {
+                    obj.insert("skills".into(), serde_json::json!(p.skills));
+                }
+            }
+        }
         let conv_req = CreateConversationRequest {
             r#type: agent_type,
             name: Some(name.clone()),
@@ -302,10 +638,13 @@ impl TeamSessionService {
             .await
             .map_err(TeamError::from_conversation_create)?;
 
+        // `role` (Lead vs Teammate) was decided at the top of this method
+        // (lazy-session promotion) so it could also drive the default lead
+        // persona; reuse it here for the persisted agent.
         let agent = TeamAgent {
             slot_id: generate_id(),
             name,
-            role: TeammateRole::Teammate,
+            role,
             conversation_id: conv.id,
             backend,
             model,
@@ -320,13 +659,20 @@ impl TeamSessionService {
 
         team.agents.push(agent.clone());
         let agents_json = serde_json::to_string(&team.agents)?;
+        // When this spawn was promoted to Lead, also record it as the team's
+        // `lead_agent_id`; otherwise leave the existing lead pointer untouched.
+        let lead_agent_id = if role == TeammateRole::Lead {
+            Some(agent.slot_id.clone())
+        } else {
+            None
+        };
         self.repo
             .update_team(
                 team_id,
                 &UpdateTeamParams {
                     name: None,
                     agents: Some(agents_json),
-                    lead_agent_id: None,
+                    lead_agent_id,
                 },
             )
             .await?;

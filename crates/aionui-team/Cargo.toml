@@ -11,6 +11,10 @@ aionui-realtime.workspace = true
 aionui-conversation.workspace = true
 aionui-ai-agent.workspace = true
 aionui-auth.workspace = true
+# Foundry R1: Role(assistant)->spawn persona bridge + un-stubbed catalog.
+# Safe (no cycle): aionui-assistant depends only on common/api-types/db/auth/
+# extension — none of which depend back on aionui-team.
+aionui-assistant.workspace = true
 axum.workspace = true
 tokio.workspace = true
 serde.workspace = true

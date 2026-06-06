@@ -64,6 +64,14 @@ pub struct TeamSessionService {
     /// `guide_mcp_config` on backend restart (port/token change each restart).
     /// `None` when the Guide server failed to start.
     guide_mcp_config: Option<GuideMcpConfig>,
+    /// Foundry R1: Role(assistant)->spawn persona bridge.
+    /// Shared `AssistantService` used to resolve a spawn request's
+    /// `custom_agent_id`/`specialization` to an Assistant (Role), read its
+    /// rule body, compute its skills snapshot, and surface the Role catalog
+    /// to the lead prompt + `team_describe_assistant`. `None` in unit tests
+    /// and when no assistant service has been wired (degrades to today's
+    /// behaviour: no persona injection, empty catalog).
+    assistant_service: Option<Arc<aionui_assistant::AssistantService>>,
 }
 
 impl TeamSessionService {
@@ -78,6 +86,42 @@ impl TeamSessionService {
         backend_binary_path: Arc<PathBuf>,
         guide_mcp_config: Option<GuideMcpConfig>,
     ) -> Arc<Self> {
+        Self::new_with_assistant(
+            repo,
+            agent_metadata_repo,
+            provider_repo,
+            conversation_service,
+            broadcaster,
+            task_manager,
+            backend_binary_path,
+            guide_mcp_config,
+            None,
+        )
+    }
+
+    /// Foundry R1: construct with the shared `AssistantService` wired so the
+    /// Role (= Assistant) catalog + persona bridge are live.
+    ///
+    /// A separate constructor (rather than a post-construction setter) is
+    /// required because [`new`](Self::new) builds the `Arc` via
+    /// `Arc::new_cyclic` — which installs a `Weak` self-ref — so
+    /// `Arc::get_mut` can never return `Some` afterwards. Injecting the
+    /// dependency inside the cyclic closure is the only sound point.
+    /// `assistant_service: None` reproduces today's behaviour (no persona
+    /// injection, empty catalog) and is what the legacy [`new`](Self::new)
+    /// and unit tests pass.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_assistant(
+        repo: Arc<dyn ITeamRepository>,
+        agent_metadata_repo: Arc<dyn IAgentMetadataRepository>,
+        provider_repo: Arc<dyn IProviderRepository>,
+        conversation_service: ConversationService,
+        broadcaster: Arc<dyn EventBroadcaster>,
+        task_manager: Arc<dyn IWorkerTaskManager>,
+        backend_binary_path: Arc<PathBuf>,
+        guide_mcp_config: Option<GuideMcpConfig>,
+        assistant_service: Option<Arc<aionui_assistant::AssistantService>>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
             repo,
             agent_metadata_repo,
@@ -91,7 +135,13 @@ impl TeamSessionService {
             ensure_session_locks: Arc::new(DashMap::new()),
             self_ref: weak.clone(),
             guide_mcp_config,
+            assistant_service,
         })
+    }
+
+    /// Foundry R1: accessor for the optional Role/Assistant service.
+    pub(crate) fn assistant_service(&self) -> Option<&Arc<aionui_assistant::AssistantService>> {
+        self.assistant_service.as_ref()
     }
 
     /// Restore sessions for all existing teams. Called once at app startup
@@ -145,9 +195,12 @@ impl TeamSessionService {
     }
 
     pub async fn create_team(&self, user_id: &str, req: CreateTeamRequest) -> Result<TeamResponse, TeamError> {
-        if req.agents.is_empty() {
-            return Err(TeamError::InvalidRequest("at least one agent is required".into()));
-        }
+        // Foundry R1 (lazy session): an empty agent list is now allowed — this
+        // creates a project orchestration session with no roster. The first
+        // agent spawned into it is promoted to Lead (see `spawn_agent` +
+        // `persist_spawned_agent`). The old "at least one agent is required"
+        // gate is dropped; downstream code already tolerates a lead-less team
+        // (`lead_agent_id` is `Option`, prompt building handles empty rosters).
 
         let shared_workspace = match req.workspace.as_deref() {
             Some(workspace) if !workspace.is_empty() => Some(validate_create_workspace_path(workspace)?),
@@ -420,7 +473,25 @@ impl TeamSessionService {
         let mut team = Team::from_row(&row)?;
 
         let slot_id = generate_id();
-        let role = TeammateRole::parse(&req.role).unwrap_or(TeammateRole::Teammate);
+        // Foundry R1 (lazy session): if the team currently has no Lead (e.g.
+        // it was created with an empty roster), the first agent added is
+        // promoted to Lead so the project session has a coordinator. Otherwise
+        // honour the requested role (defaulting to Teammate).
+        let team_has_lead = team.agents.iter().any(|a| a.role == TeammateRole::Lead);
+        let role = if team_has_lead {
+            TeammateRole::parse(&req.role).unwrap_or(TeammateRole::Teammate)
+        } else {
+            TeammateRole::Lead
+        };
+
+        // Foundry R1: the Orchestrator is the default lead persona. When this
+        // add promoted the agent to Lead and the caller did not pin a Role,
+        // default `custom_agent_id` to `orchestrator` so the persona bridge
+        // injects the lead delegation rule below. Mirrors `persist_spawned_agent`.
+        let effective_custom_agent_id = match (&role, req.custom_agent_id.clone()) {
+            (TeammateRole::Lead, None) => Some("orchestrator".to_owned()),
+            (_, other) => other,
+        };
 
         // Foundry: Phase 2 (roles + capability tiers)
         // A `tier` overrides backend/model unless an explicit model was passed
@@ -435,6 +506,14 @@ impl TeamSessionService {
             None => (req.backend.clone(), req.model.clone()),
         };
 
+        // Foundry R1: resolve the Role persona (if any) so it can be folded
+        // into `extra` below. `add_agent` always carries an explicit backend
+        // (frontend-driven), so unlike the spawn path it does NOT let the
+        // Role's `preset_agent_type` override `backend`.
+        let persona = self
+            .resolve_role_persona(effective_custom_agent_id.as_deref(), req.specialization.as_deref())
+            .await;
+
         let agent_type = parse_agent_type(&backend)?;
 
         let provider_id = if agent_type == AgentType::Aionrs {
@@ -446,7 +525,7 @@ impl TeamSessionService {
         };
         // Top-level `model` is aionrs-only per spec 2026-05-12; for other
         // agent types the model/provider ride along in `extra`.
-        let (top_level_model, extra) = if agent_type == AgentType::Aionrs {
+        let (top_level_model, mut extra) = if agent_type == AgentType::Aionrs {
             (
                 Some(ProviderWithModel {
                     provider_id,
@@ -469,6 +548,21 @@ impl TeamSessionService {
                 }),
             )
         };
+
+        // Foundry R1: fold the Role persona into `extra` (same keys the
+        // standalone assistant path and `persist_spawned_agent` set).
+        if let Some(p) = &persona
+            && let Some(obj) = extra.as_object_mut()
+        {
+            obj.insert("preset_assistant_id".into(), serde_json::json!(p.assistant_id));
+            if !p.preset_context.trim().is_empty() {
+                obj.insert("preset_context".into(), serde_json::json!(p.preset_context));
+            }
+            if !p.skills.is_empty() {
+                obj.insert("skills".into(), serde_json::json!(p.skills));
+            }
+        }
+
         let conv_req = CreateConversationRequest {
             r#type: agent_type,
             name: Some(req.name.clone()),
@@ -492,7 +586,9 @@ impl TeamSessionService {
             conversation_id: conv.id,
             backend,
             model,
-            custom_agent_id: req.custom_agent_id,
+            // Foundry R1: use the effective id (defaulted to `orchestrator`
+            // for a promoted lead) so the persisted slot reflects the persona.
+            custom_agent_id: effective_custom_agent_id,
             status: None,
             conversation_type: None,
             cli_path: None,
@@ -503,13 +599,20 @@ impl TeamSessionService {
 
         team.agents.push(agent.clone());
         let agents_json = serde_json::to_string(&team.agents)?;
+        // Foundry R1 (lazy session): persist the lead pointer when this add
+        // promoted the agent to Lead; otherwise leave the pointer untouched.
+        let lead_agent_id = if role == TeammateRole::Lead {
+            Some(agent.slot_id.clone())
+        } else {
+            None
+        };
         self.repo
             .update_team(
                 team_id,
                 &UpdateTeamParams {
                     name: None,
                     agents: Some(agents_json),
-                    lead_agent_id: None,
+                    lead_agent_id,
                 },
             )
             .await?;

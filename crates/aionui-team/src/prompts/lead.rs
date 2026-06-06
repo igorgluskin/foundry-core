@@ -68,11 +68,17 @@ pub fn build_lead_prompt(params: &LeadPromptParams<'_>) -> String {
     let available_assistants_section = render_available_assistants_section(params.available_assistants);
     let workspace_section = render_workspace_section(params.team_workspace);
 
-    // Phase1 does not surface preset assistants in the staffing-proposal formatting
-    // rules, so these two placeholders are replaced with empty strings. When preset
-    // support lands they will be conditional strings analogous to AionUi.
-    let preset_formatting_step_rule = "";
-    let preset_formatting_important_rule = "";
+    // Foundry R1: surface the preset-assistant staffing-proposal formatting
+    // rules whenever the Role catalog is non-empty (mirrors AionUi's
+    // conditional). When empty, both stay "" so the proposal copy is unchanged.
+    let (preset_formatting_step_rule, preset_formatting_important_rule) = if params.available_assistants.is_empty() {
+        ("", "")
+    } else {
+        (
+            " When a proposed teammate is a preset assistant, list its preset id (from the section above) in the agent type column instead of a generic CLI backend.",
+            "When a task matches a preset assistant's specialty, prefer spawning that preset (pass its id as `custom_agent_id`) over a generic CLI agent — you inherit its rules and skills automatically.",
+        )
+    };
 
     LEAD_PROMPT_TEMPLATE
         .replace(PLACEHOLDER_TEAMMATE_LIST, &teammate_list)

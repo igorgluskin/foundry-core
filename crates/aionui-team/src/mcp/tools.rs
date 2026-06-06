@@ -458,8 +458,10 @@ pub fn build_list_models_from_rows(
     json!({ "agent_types": agent_types })
 }
 
-/// Phase-1 minimal `team_describe_assistant` handler. Backend has no preset
-/// assistants wired yet, so every call returns the not-found text.
+/// Fallback `team_describe_assistant` handler used only when no
+/// `AssistantService` is reachable (e.g. unit tests). The real lookup lives in
+/// [`crate::service::TeamSessionService::describe_assistant`] (Foundry R1),
+/// which the MCP dispatch prefers whenever the service can be upgraded.
 pub fn handle_team_describe_assistant(_args: &Value) -> String {
     "Preset assistant not found".to_owned()
 }

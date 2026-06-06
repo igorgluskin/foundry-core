@@ -1101,6 +1101,57 @@
         ]
       },
       "models": []
+    },
+    {
+      "id": "orchestrator",
+      "name": "Orchestrator",
+      "name_i18n": {
+        "en-US": "Orchestrator",
+        "zh-CN": "协调者",
+        "ru-RU": "Координатор",
+        "uk-UA": "Координатор"
+      },
+      "description": "Team lead persona that coordinates a team of AI agents: decomposes work, staffs roles, sequences dependencies, and synthesizes results. The default lead persona for project orchestration sessions.",
+      "description_i18n": {
+        "en-US": "Team lead persona that coordinates a team of AI agents: decomposes work, staffs roles, sequences dependencies, and synthesizes results. The default lead persona for project orchestration sessions.",
+        "zh-CN": "团队负责人人格，协调一支 AI 智能体团队：拆解任务、配置角色、编排依赖并汇总结果。项目编排会话的默认负责人人格。",
+        "ru-RU": "Персона тимлида, координирующая команду ИИ-агентов: декомпозиция задач, подбор ролей, выстраивание зависимостей и синтез результатов. Персона лида по умолчанию для сессий оркестрации проектов.",
+        "uk-UA": "Персона тимліда, що координує команду ШІ-агентів: декомпозиція задач, підбір ролей, упорядкування залежностей та синтез результатів. Типова персона ліда для сесій оркестрації проектів."
+      },
+      "avatar": "🧑‍✈️",
+      "preset_agent_type": "aionrs",
+      "enabled_skills": [],
+      "custom_skill_names": [],
+      "disabled_builtin_skills": [],
+      "rule_file": "orchestrator/orchestrator.{locale}.md",
+      "prompts": [
+        "I have a project to build — help me staff the right team and break the work down",
+        "Propose a team lineup for implementing a new feature end to end",
+        "Coordinate a review-then-qa gate for the implementation work"
+      ],
+      "prompts_i18n": {
+        "en-US": [
+          "I have a project to build — help me staff the right team and break the work down",
+          "Propose a team lineup for implementing a new feature end to end",
+          "Coordinate a review-then-qa gate for the implementation work"
+        ],
+        "zh-CN": [
+          "我有一个项目要做——帮我配置合适的团队并拆解工作",
+          "为端到端实现一个新功能提出团队阵容方案",
+          "为实现工作编排「审查→QA」的依赖关卡"
+        ],
+        "ru-RU": [
+          "У меня есть проект — помоги собрать нужную команду и разбить работу",
+          "Предложи состав команды для сквозной реализации новой функции",
+          "Организуй цепочку «ревью → QA» для работ по реализации"
+        ],
+        "uk-UA": [
+          "У мене є проєкт — допоможи зібрати потрібну команду та розбити роботу",
+          "Запропонуй склад команди для наскрізної реалізації нової функції",
+          "Організуй ланцюг «рев'ю → QA» для робіт з реалізації"
+        ]
+      },
+      "models": []
     }
   ]
 }

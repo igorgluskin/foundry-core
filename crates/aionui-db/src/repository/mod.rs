@@ -41,7 +41,7 @@ pub use cron::ICronRepository;
 pub use mcp_server::IMcpServerRepository;
 pub use oauth_token::IOAuthTokenRepository;
 // Foundry: Phase 3 (multi-project)
-pub use project::{IProjectRepository, UpdateProjectParams};
+pub use project::IProjectRepository;
 pub use provider::IProviderRepository;
 pub use remote_agent::IRemoteAgentRepository;
 pub use settings::ISettingsRepository;

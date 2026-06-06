@@ -29,8 +29,6 @@ pub(crate) struct RolePersona {
     /// The Role's `preset_agent_type`; used to derive the spawn backend when
     /// the lead did not pass an explicit backend/tier override.
     pub preset_agent_type: String,
-    /// The Role's configured `models[]` (Task 5 fallback for tier resolution).
-    pub models: Vec<String>,
 }
 
 /// Known ACP vendor labels. Kept in lockstep with the `agent_metadata`
@@ -328,7 +326,6 @@ impl TeamSessionService {
                 preset_context,
                 skills: Self::role_skills_snapshot(&resp),
                 preset_agent_type: resp.preset_agent_type.clone(),
-                models: resp.models.clone(),
             });
         }
         None

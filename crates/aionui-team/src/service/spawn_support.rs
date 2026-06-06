@@ -228,6 +228,8 @@ impl TeamSessionService {
     /// The lock is *not* held across the process warmup step — callers
     /// (`TeamSession::spawn_agent`) wire that up separately so a slow
     /// `warmup` never stalls other spawns against the same team.
+    // Foundry: Phase 2 (roles + capability tiers) — added `specialization`/`tier`
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn persist_spawned_agent(
         &self,
         team_id: &str,
@@ -236,6 +238,8 @@ impl TeamSessionService {
         backend: String,
         model: String,
         custom_agent_id: Option<String>,
+        specialization: Option<String>,
+        tier: Option<String>,
     ) -> Result<TeamAgent, TeamError> {
         let lock = self
             .add_agent_locks
@@ -307,6 +311,9 @@ impl TeamSessionService {
             status: None,
             conversation_type: None,
             cli_path: None,
+            // Foundry: Phase 2 (roles + capability tiers)
+            specialization,
+            tier,
         };
 
         team.agents.push(agent.clone());

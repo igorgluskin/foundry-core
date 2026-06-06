@@ -34,7 +34,25 @@ pub struct TeammatePromptParams<'a> {
 pub const TEAMMATE_PROMPT_TEMPLATE: &str = r#"# You are a Team Member
 
 ## Your Identity
-Name: {{AGENT_NAME}}, Role: {{ROLE_DESC}}
+Name: {{AGENT_NAME}}, Role: {{ROLE_DESC}}{{SPECIALIZATION}}
+
+## Team Roles
+The team works in specializations. Yours is shown above (when assigned). The taxonomy:
+- **architect** — design the solution and define interfaces/contracts before implementation.
+- **implementer** — write the actual code/content.
+- **reviewer** — review an implementer's output for correctness, security, and quality; do not implement.
+- **qa** — verify behavior: run/extend tests, check acceptance criteria, confirm fixes.
+- **researcher** — gather information and report findings to unblock others.
+
+Stay within your specialization. If your task needs work outside it, report back to the leader rather than doing it yourself.
+
+## Quality Gates (review → qa)
+Work is sequenced through task dependencies on the board. A reviewer task is `blocked_by` its implementer task; a qa task is `blocked_by` its reviewer task. You do NOT need to poll or wait in an open turn — when a prerequisite completes, the system automatically wakes you with a message that your assigned task is now unblocked. When that happens:
+1. Mark your task `in_progress` with `team_task_update`.
+2. Do the work for your specialization (review, qa, etc.).
+3. Mark it `completed` and report to the leader.
+
+If a task carries `metadata.required_tier`, it expects a teammate of that capability tier — proceed if that is you; otherwise flag it to the leader.
 
 ## Conversation Style
 - If the user greets you, starts a new chat, or asks what you can do without assigning concrete work yet, reply warmly and naturally
@@ -125,6 +143,19 @@ pub fn build_teammate_prompt(params: &TeammatePromptParams<'_>) -> String {
             .join(", ")
     };
 
+    // Foundry: Phase 2 (roles + capability tiers)
+    // Render the agent's specialization (and tier when present) inline after the
+    // generic role description. Empty when neither is set.
+    let specialization_section = match (
+        params.agent.specialization.as_deref().filter(|s| !s.is_empty()),
+        params.agent.tier.as_deref().filter(|t| !t.is_empty()),
+    ) {
+        (Some(spec), Some(tier)) => format!(", Specialization: {spec} (tier: {tier})"),
+        (Some(spec), None) => format!(", Specialization: {spec}"),
+        (None, Some(tier)) => format!(" (tier: {tier})"),
+        (None, None) => String::new(),
+    };
+
     let workspace_section = match params.team_workspace {
         Some(ws) => format!(
             "\n\n## Workspaces\n\
@@ -138,6 +169,8 @@ Always use the team workspace path for any project-related operations."
     TEAMMATE_PROMPT_TEMPLATE
         .replace("{{AGENT_NAME}}", &params.agent.name)
         .replace("{{ROLE_DESC}}", &role_description(&params.agent.backend))
+        // Foundry: Phase 2 (roles + capability tiers)
+        .replace("{{SPECIALIZATION}}", &specialization_section)
         .replace("{{LEADER_NAME}}", &params.leader.name)
         .replace("{{TEAMMATES}}", &teammates_section)
         .replace("{{WORKSPACE}}", &workspace_section)
@@ -272,6 +305,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         }
     }
 
@@ -355,6 +390,50 @@ mod tests {
         assert!(out.contains("## Workspaces"));
         assert!(out.contains("`/workspace/team-alpha`"));
         assert!(out.contains("Role: general-purpose AI assistant"));
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn teammate_prompt_renders_specialization_and_tier() {
+        let lead = make_agent("lead-1", "Captain", TeammateRole::Lead, "claude");
+        let mut agent = make_agent("w1", "Worker1", TeammateRole::Teammate, "claude");
+        agent.specialization = Some("reviewer".into());
+        agent.tier = Some("smart".into());
+        let renamed = HashMap::new();
+        let params = TeammatePromptParams {
+            agent: &agent,
+            team_name: "Alpha",
+            leader: &lead,
+            teammates: &[],
+            renamed_agents: &renamed,
+            team_workspace: None,
+        };
+        let out = build_teammate_prompt(&params);
+        assert!(out.contains("Specialization: reviewer (tier: smart)"));
+        assert!(out.contains("## Quality Gates (review → qa)"));
+        assert!(out.contains("## Team Roles"));
+        assert!(!out.contains("{{SPECIALIZATION}}"));
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn teammate_prompt_omits_specialization_when_unset() {
+        let lead = make_agent("lead-1", "Captain", TeammateRole::Lead, "claude");
+        let agent = make_agent("w1", "Worker1", TeammateRole::Teammate, "gemini");
+        let renamed = HashMap::new();
+        let params = TeammatePromptParams {
+            agent: &agent,
+            team_name: "Alpha",
+            leader: &lead,
+            teammates: &[],
+            renamed_agents: &renamed,
+            team_workspace: None,
+        };
+        let out = build_teammate_prompt(&params);
+        // No specialization → the identity line ends right after the role desc.
+        assert!(out.contains("Name: Worker1, Role: Google Gemini AI assistant\n"));
+        assert!(!out.contains("Specialization:"));
+        assert!(!out.contains("{{SPECIALIZATION}}"));
     }
 
     // Test 3: wake payload with empty mailbox and no tasks

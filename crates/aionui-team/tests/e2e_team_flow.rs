@@ -344,6 +344,8 @@ fn two_agents() -> Vec<TeamAgent> {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         },
         TeamAgent {
             slot_id: "worker-1".into(),
@@ -356,6 +358,8 @@ fn two_agents() -> Vec<TeamAgent> {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         },
     ]
 }
@@ -753,6 +757,8 @@ async fn s4_dynamic_agent_added_then_finish_propagates() {
         status: None,
         conversation_type: None,
         cli_path: None,
+        specialization: None,
+        tier: None,
     };
 
     // Insert a recording agent for the new conversation
@@ -1014,6 +1020,8 @@ async fn s7_team_members_reflects_dynamic_roster() {
         status: None,
         conversation_type: None,
         cli_path: None,
+        specialization: None,
+        tier: None,
     };
     session.add_agent(&new_agent).await;
 

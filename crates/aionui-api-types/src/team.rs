@@ -61,6 +61,15 @@ pub struct AddAgentRequest {
     pub model: String,
     #[serde(default)]
     pub custom_agent_id: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Optional specialization (`architect | implementer | reviewer | qa | researcher`).
+    #[serde(default)]
+    pub specialization: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Optional capability tier (`fast | balanced | smart`). Overrides
+    /// backend/model resolution unless an explicit model is supplied.
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 /// Request body for `PATCH /api/teams/:id/agents/:slotId/name`.
@@ -119,6 +128,14 @@ pub struct TeamAgentResponse {
     pub status: Option<String>,
     #[serde(default)]
     pub pending_confirmations: usize,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Agent specialization (`lead | architect | implementer | reviewer | qa | researcher`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specialization: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Capability tier the agent was staffed with (`fast | balanced | smart`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
 }
 
 /// Full team response returned by create, get, and list endpoints.
@@ -517,6 +534,31 @@ mod tests {
         assert_eq!(req.custom_agent_id.as_deref(), Some("custom-1"));
     }
 
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn deserialize_add_agent_request_with_specialization_and_tier() {
+        let raw = json!({
+            "name": "Reviewer",
+            "role": "teammate",
+            "backend": "claude",
+            "model": "",
+            "specialization": "reviewer",
+            "tier": "smart"
+        });
+        let req: AddAgentRequest = serde_json::from_value(raw).unwrap();
+        assert_eq!(req.specialization.as_deref(), Some("reviewer"));
+        assert_eq!(req.tier.as_deref(), Some("smart"));
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn deserialize_add_agent_request_specialization_tier_default_to_none() {
+        let raw = json!({ "name": "X", "role": "teammate", "backend": "acp", "model": "claude" });
+        let req: AddAgentRequest = serde_json::from_value(raw).unwrap();
+        assert!(req.specialization.is_none());
+        assert!(req.tier.is_none());
+    }
+
     #[test]
     fn deserialize_add_agent_request_missing_name() {
         let raw = json!({ "role": "teammate", "backend": "acp", "model": "claude" });
@@ -590,6 +632,8 @@ mod tests {
             custom_agent_id: Some("agent-x".into()),
             status: Some("idle".into()),
             pending_confirmations: 2,
+            specialization: None,
+            tier: None,
         };
         let json = serde_json::to_value(&agent).unwrap();
         assert_eq!(json["slot_id"], "slot-1");
@@ -617,6 +661,8 @@ mod tests {
             custom_agent_id: None,
             status: None,
             pending_confirmations: 0,
+            specialization: None,
+            tier: None,
         };
         let json = serde_json::to_value(&agent).unwrap();
         assert!(json.get("icon").is_none());
@@ -640,6 +686,8 @@ mod tests {
                 custom_agent_id: None,
                 status: None,
                 pending_confirmations: 0,
+                specialization: None,
+                tier: None,
             }],
             lead_agent_id: Some("slot-1".into()),
             created_at: 1700000000000,
@@ -700,6 +748,8 @@ mod tests {
                 custom_agent_id: None,
                 status: Some("idle".into()),
                 pending_confirmations: 0,
+                specialization: None,
+                tier: None,
             },
         };
         let json = serde_json::to_value(&payload).unwrap();
@@ -749,10 +799,58 @@ mod tests {
             custom_agent_id: Some("custom-1".into()),
             status: Some("working".into()),
             pending_confirmations: 1,
+            specialization: None,
+            tier: None,
         };
         let json = serde_json::to_string(&agent).unwrap();
         let parsed: TeamAgentResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, agent);
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn team_agent_response_specialization_tier_roundtrip() {
+        let agent = TeamAgentResponse {
+            slot_id: "slot-1".into(),
+            name: "Architect".into(),
+            role: "teammate".into(),
+            conversation_id: "conv-1".into(),
+            backend: "claude".into(),
+            icon: None,
+            model: "claude-opus".into(),
+            custom_agent_id: None,
+            status: Some("idle".into()),
+            pending_confirmations: 0,
+            specialization: Some("architect".into()),
+            tier: Some("smart".into()),
+        };
+        let json = serde_json::to_value(&agent).unwrap();
+        assert_eq!(json["specialization"], "architect");
+        assert_eq!(json["tier"], "smart");
+        let parsed: TeamAgentResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, agent);
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn team_agent_response_specialization_tier_omitted_when_none() {
+        let agent = TeamAgentResponse {
+            slot_id: "slot-1".into(),
+            name: "Worker".into(),
+            role: "teammate".into(),
+            conversation_id: "conv-1".into(),
+            backend: "claude".into(),
+            icon: None,
+            model: "claude".into(),
+            custom_agent_id: None,
+            status: None,
+            pending_confirmations: 0,
+            specialization: None,
+            tier: None,
+        };
+        let json = serde_json::to_value(&agent).unwrap();
+        assert!(json.get("specialization").is_none());
+        assert!(json.get("tier").is_none());
     }
 
     #[test]
@@ -772,6 +870,8 @@ mod tests {
                     custom_agent_id: None,
                     status: None,
                     pending_confirmations: 0,
+                    specialization: None,
+                    tier: None,
                 },
                 TeamAgentResponse {
                     slot_id: "s2".into(),
@@ -784,6 +884,8 @@ mod tests {
                     custom_agent_id: Some("x".into()),
                     status: Some("idle".into()),
                     pending_confirmations: 3,
+                    specialization: None,
+                    tier: None,
                 },
             ],
             lead_agent_id: Some("s1".into()),
@@ -822,6 +924,8 @@ mod tests {
                 custom_agent_id: None,
                 status: None,
                 pending_confirmations: 0,
+                specialization: None,
+                tier: None,
             },
         };
         let json = serde_json::to_string(&payload).unwrap();

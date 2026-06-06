@@ -256,6 +256,9 @@ impl TeamSessionService {
                 status: None,
                 conversation_type: None,
                 cli_path: None,
+                // Foundry: Phase 2 (roles + capability tiers) — not surfaced in team-create DTO
+                specialization: None,
+                tier: None,
             });
         }
 
@@ -412,14 +415,28 @@ impl TeamSessionService {
 
         let slot_id = generate_id();
         let role = TeammateRole::parse(&req.role).unwrap_or(TeammateRole::Teammate);
-        let agent_type = parse_agent_type(&req.backend)?;
+
+        // Foundry: Phase 2 (roles + capability tiers)
+        // A `tier` overrides backend/model unless an explicit model was passed
+        // (`req.model` empty == no explicit model). Mirrors the spawn_agent path.
+        let (backend, model) = match req
+            .tier
+            .as_deref()
+            .filter(|t| !t.is_empty() && req.model.is_empty())
+            .and_then(crate::session::resolve_tier)
+        {
+            Some((tier_backend, tier_model)) => (tier_backend, tier_model),
+            None => (req.backend.clone(), req.model.clone()),
+        };
+
+        let agent_type = parse_agent_type(&backend)?;
 
         let provider_id = if agent_type == AgentType::Aionrs {
-            self.resolve_provider_for_model(&req.model)
+            self.resolve_provider_for_model(&model)
                 .await
-                .unwrap_or_else(|| req.backend.clone())
+                .unwrap_or_else(|| backend.clone())
         } else {
-            req.backend.clone()
+            backend.clone()
         };
         // Top-level `model` is aionrs-only per spec 2026-05-12; for other
         // agent types the model/provider ride along in `extra`.
@@ -427,12 +444,12 @@ impl TeamSessionService {
             (
                 Some(ProviderWithModel {
                     provider_id,
-                    model: req.model.clone(),
+                    model: model.clone(),
                     use_model: None,
                 }),
                 serde_json::json!({
                     "teamId": team_id,
-                    "backend": req.backend,
+                    "backend": backend,
                 }),
             )
         } else {
@@ -440,9 +457,9 @@ impl TeamSessionService {
                 None,
                 serde_json::json!({
                     "teamId": team_id,
-                    "backend": req.backend,
+                    "backend": backend,
                     "provider_id": provider_id,
-                    "current_model_id": req.model.clone(),
+                    "current_model_id": model.clone(),
                 }),
             )
         };
@@ -465,12 +482,15 @@ impl TeamSessionService {
             name: req.name,
             role,
             conversation_id: conv.id,
-            backend: req.backend,
-            model: req.model,
+            backend,
+            model,
             custom_agent_id: req.custom_agent_id,
             status: None,
             conversation_type: None,
             cli_path: None,
+            // Foundry: Phase 2 (roles + capability tiers)
+            specialization: req.specialization.filter(|s| !s.is_empty()),
+            tier: req.tier.filter(|t| !t.is_empty()),
         };
 
         team.agents.push(agent.clone());

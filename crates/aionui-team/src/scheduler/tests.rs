@@ -78,6 +78,8 @@ fn make_agent(slot_id: &str, name: &str, role: TeammateRole) -> TeamAgent {
         status: None,
         conversation_type: None,
         cli_path: None,
+        specialization: None,
+        tier: None,
     }
 }
 
@@ -180,6 +182,132 @@ async fn try_wake_nonexistent_agent_fails() {
 
     let result = mgr.try_wake("ghost").await;
     assert!(matches!(result, Err(TeamError::AgentNotFound(_))));
+}
+
+// Foundry: Phase 2 (auto-routing) ----------------------------------------
+
+#[tokio::test]
+async fn route_unblocked_owners_wakes_idle_owner_of_unblocked_task() {
+    use crate::task_board::TaskUpdate;
+    use crate::types::TaskStatus;
+
+    let agents = make_team_agents();
+    let (mgr, _) = make_manager(&agents);
+
+    // Task A (owned by worker-1) blocks task B (owned by worker-2).
+    let task_a = mgr
+        .task_board
+        .create_task("t1", "Implement", None, Some("worker-1"), &[])
+        .await
+        .unwrap();
+    let task_b = mgr
+        .task_board
+        .create_task("t1", "Review", None, Some("worker-2"), std::slice::from_ref(&task_a.id))
+        .await
+        .unwrap();
+
+    // Complete A — this removes A from B's blocked_by (check_unblocks).
+    mgr.task_board
+        .update_task(
+            "t1",
+            &task_a.id,
+            &TaskUpdate {
+                status: Some(TaskStatus::Completed),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let woken = mgr.route_unblocked_owners(&task_a.id, "worker-1").await.unwrap();
+    assert_eq!(woken, vec!["worker-2".to_string()]);
+
+    // The owner received a "work your assigned task" mailbox entry.
+    let unread = mgr.mailbox.peek_unread("t1", "worker-2").await.unwrap();
+    assert_eq!(unread.len(), 1);
+    assert!(unread[0].content.contains("now unblocked"));
+    assert!(unread[0].content.contains(&task_b.subject));
+}
+
+#[tokio::test]
+async fn route_unblocked_owners_skips_working_owner() {
+    use crate::task_board::TaskUpdate;
+    use crate::types::TaskStatus;
+
+    let agents = make_team_agents();
+    let (mgr, _) = make_manager(&agents);
+
+    let task_a = mgr
+        .task_board
+        .create_task("t1", "Implement", None, Some("worker-1"), &[])
+        .await
+        .unwrap();
+    let _task_b = mgr
+        .task_board
+        .create_task("t1", "Review", None, Some("worker-2"), std::slice::from_ref(&task_a.id))
+        .await
+        .unwrap();
+
+    // Owner is mid-turn — must be skipped.
+    mgr.set_status("worker-2", TeammateStatus::Working).await.unwrap();
+
+    mgr.task_board
+        .update_task(
+            "t1",
+            &task_a.id,
+            &TaskUpdate {
+                status: Some(TaskStatus::Completed),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let woken = mgr.route_unblocked_owners(&task_a.id, "worker-1").await.unwrap();
+    assert!(woken.is_empty());
+    let unread = mgr.mailbox.peek_unread("t1", "worker-2").await.unwrap();
+    assert!(unread.is_empty());
+}
+
+#[tokio::test]
+async fn route_unblocked_owners_skips_still_blocked_task() {
+    use crate::task_board::TaskUpdate;
+    use crate::types::TaskStatus;
+
+    let agents = make_team_agents();
+    let (mgr, _) = make_manager(&agents);
+
+    // B depends on BOTH A and X. Completing only A leaves B blocked.
+    let task_a = mgr
+        .task_board
+        .create_task("t1", "A", None, Some("worker-1"), &[])
+        .await
+        .unwrap();
+    let task_x = mgr
+        .task_board
+        .create_task("t1", "X", None, Some("worker-1"), &[])
+        .await
+        .unwrap();
+    let _task_b = mgr
+        .task_board
+        .create_task("t1", "B", None, Some("worker-2"), &[task_a.id.clone(), task_x.id.clone()])
+        .await
+        .unwrap();
+
+    mgr.task_board
+        .update_task(
+            "t1",
+            &task_a.id,
+            &TaskUpdate {
+                status: Some(TaskStatus::Completed),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let woken = mgr.route_unblocked_owners(&task_a.id, "worker-1").await.unwrap();
+    assert!(woken.is_empty());
 }
 
 // -- Anti-deadloop: Lead idle after turn ----------------------------------

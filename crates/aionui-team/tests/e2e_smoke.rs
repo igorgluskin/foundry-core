@@ -86,6 +86,8 @@ async fn setup_team_with_lead() -> SmokeEnv {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         },
         TeamAgent {
             slot_id: worker_slot_id.clone(),
@@ -98,6 +100,8 @@ async fn setup_team_with_lead() -> SmokeEnv {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         },
     ];
     let scheduler = Arc::new(TeammateManager::new(

@@ -53,6 +53,8 @@ fn make_agents() -> Vec<TeamAgent> {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         },
         TeamAgent {
             slot_id: "worker-1".into(),
@@ -65,6 +67,8 @@ fn make_agents() -> Vec<TeamAgent> {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         },
     ]
 }

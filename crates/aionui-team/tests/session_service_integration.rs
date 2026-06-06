@@ -868,6 +868,8 @@ async fn ta_add_agent_uses_model_fallback_for_acp_backend() {
                 backend: "acp".into(),
                 model: "codex".into(),
                 custom_agent_id: None,
+                specialization: None,
+                tier: None,
             },
         )
         .await
@@ -1186,6 +1188,8 @@ async fn aa1_add_agent_to_team() {
                 backend: "acp".into(),
                 model: "claude".into(),
                 custom_agent_id: None,
+                specialization: None,
+                tier: None,
             },
         )
         .await
@@ -1212,6 +1216,8 @@ async fn aa4_add_agent_to_nonexistent_team() {
                 backend: "acp".into(),
                 model: "claude".into(),
                 custom_agent_id: None,
+                specialization: None,
+                tier: None,
             },
         )
         .await;
@@ -1745,6 +1751,8 @@ async fn w4_d23_concurrent_add_agent_preserves_every_insertion() {
                     backend: "acp".into(),
                     model: "claude".into(),
                     custom_agent_id: None,
+                    specialization: None,
+                    tier: None,
                 },
             )
             .await
@@ -1763,6 +1771,8 @@ async fn w4_d23_concurrent_add_agent_preserves_every_insertion() {
                     backend: "acp".into(),
                     model: "claude".into(),
                     custom_agent_id: None,
+                    specialization: None,
+                    tier: None,
                 },
             )
             .await

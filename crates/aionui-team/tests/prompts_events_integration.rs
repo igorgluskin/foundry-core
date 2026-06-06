@@ -52,6 +52,8 @@ fn make_agent(slot_id: &str, name: &str, role: TeammateRole) -> TeamAgent {
         status: None,
         conversation_type: None,
         cli_path: None,
+        specialization: None,
+        tier: None,
     }
 }
 

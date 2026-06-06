@@ -88,7 +88,8 @@ pub fn all_tool_descriptors() -> Vec<ToolDescriptor> {
                     "model": { "type": "string", "description": "Specific model ID to use (e.g. \"claude-sonnet-4\"). Must be a valid model for the chosen agent_type. Query team_list_models to see available models." },
                     "custom_agent_id": { "type": "string", "description": "Preset assistant ID to spawn (from the Available Preset Assistants catalog). When set, agent_type is derived from the preset's backend." },
                     "backend": { "type": "string", "description": "Legacy alias for agent_type. Prefer agent_type." },
-                    "role": { "type": "string", "description": "Agent role (default: 'teammate')" }
+                    "role": { "type": "string", "description": "Agent specialization: one of architect, implementer, reviewer, qa, researcher (default: 'implementer'). This is the teammate's job on the team, separate from the structural lead/teammate distinction." },
+                    "tier": { "type": "string", "description": "Capability tier: fast, balanced, or smart. Selects a (backend, model) pair by intent. Use smart for architect/reviewer, balanced for implementers. Ignored if an explicit model is provided." }
                 },
                 "required": ["name"]
             }),
@@ -218,6 +219,11 @@ pub struct SpawnAgentInput {
     pub custom_agent_id: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Capability tier (`fast | balanced | smart`). When set and no explicit
+    /// `model` is given, resolves to a `(backend, model)` pair.
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -523,6 +529,31 @@ mod tests {
             props.contains_key("custom_agent_id"),
             "schema must expose 'custom_agent_id' field"
         );
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn team_spawn_agent_schema_exposes_tier_and_role() {
+        let desc = all_tool_descriptors()
+            .into_iter()
+            .find(|d| d.name == "team_spawn_agent")
+            .unwrap();
+        let props = desc.input_schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("tier"), "schema must expose 'tier' field");
+        assert!(props.contains_key("role"), "schema must expose 'role' field");
+        // `role` now drives specialization, so its description should mention the taxonomy.
+        let role_desc = props["role"]["description"].as_str().unwrap();
+        assert!(role_desc.contains("architect"));
+        assert!(role_desc.contains("reviewer"));
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn spawn_agent_input_accepts_tier() {
+        let raw = json!({ "name": "Rev", "role": "reviewer", "tier": "smart" });
+        let input: SpawnAgentInput = serde_json::from_value(raw).unwrap();
+        assert_eq!(input.tier.as_deref(), Some("smart"));
+        assert_eq!(input.role.as_deref(), Some("reviewer"));
     }
 
     #[test]

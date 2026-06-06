@@ -203,6 +203,8 @@ mod tests {
             status: Some(TeammateStatus::Idle),
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         };
         emitter.broadcast_agent_spawned(&agent);
 

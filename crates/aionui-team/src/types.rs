@@ -107,6 +107,18 @@ pub struct TeamAgent {
     pub conversation_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "cliPath")]
     pub cli_path: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Agent specialization within the team taxonomy
+    /// (`lead | architect | implementer | reviewer | qa | researcher`).
+    /// Separate from the structural [`TeammateRole`] (Lead|Teammate).
+    /// JSON-serialized agents — no DB migration needed.
+    #[serde(default)]
+    pub specialization: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Capability tier (`fast | balanced | smart`) the agent was staffed with.
+    /// Resolves to a `(backend, model)` pair at spawn time.
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 impl TeamAgent {
@@ -126,6 +138,9 @@ impl TeamAgent {
             custom_agent_id: self.custom_agent_id.clone(),
             status: self.status.map(|s| s.to_string()),
             pending_confirmations: 0,
+            // Foundry: Phase 2 (roles + capability tiers)
+            specialization: self.specialization.clone(),
+            tier: self.tier.clone(),
         }
     }
 }
@@ -553,6 +568,8 @@ mod tests {
             status: Some(TeammateStatus::Working),
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         };
         let resp = agent.to_response();
         assert_eq!(resp.slot_id, "s1");
@@ -575,6 +592,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         };
 
         let resp = agent.to_response_with_icon(Some("/api/assets/logos/ai-major/claude.svg".into()));
@@ -595,10 +614,55 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         };
         let json = serde_json::to_string(&agent).unwrap();
         let parsed: TeamAgent = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, agent);
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn team_agent_specialization_tier_serde_and_response() {
+        let agent = TeamAgent {
+            slot_id: "s1".into(),
+            name: "Architect".into(),
+            role: TeammateRole::Teammate,
+            conversation_id: "c1".into(),
+            backend: "claude".into(),
+            model: "claude-opus".into(),
+            custom_agent_id: None,
+            status: Some(TeammateStatus::Idle),
+            conversation_type: None,
+            cli_path: None,
+            specialization: Some("architect".into()),
+            tier: Some("smart".into()),
+        };
+        // Serde roundtrip preserves the new fields.
+        let json = serde_json::to_string(&agent).unwrap();
+        let parsed: TeamAgent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, agent);
+        // to_response threads them through.
+        let resp = agent.to_response();
+        assert_eq!(resp.specialization.as_deref(), Some("architect"));
+        assert_eq!(resp.tier.as_deref(), Some("smart"));
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn team_agent_specialization_tier_default_when_absent() {
+        // Legacy JSON without the Phase 2 fields deserializes with None.
+        let raw = serde_json::json!({
+            "slot_id": "s1",
+            "agentName": "Worker",
+            "role": "teammate",
+            "conversation_id": "c1",
+            "agentType": "claude"
+        });
+        let agent: TeamAgent = serde_json::from_value(raw).unwrap();
+        assert!(agent.specialization.is_none());
+        assert!(agent.tier.is_none());
     }
 
     #[test]
@@ -614,6 +678,8 @@ mod tests {
             status: Some(TeammateStatus::Idle),
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         };
         let val = serde_json::to_value(&agent).unwrap();
         assert!(val.get("slot_id").is_some());
@@ -656,6 +722,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         }])
         .unwrap();
         let row = TeamRow {
@@ -694,6 +762,8 @@ mod tests {
                 status: Some(TeammateStatus::Idle),
                 conversation_type: None,
                 cli_path: None,
+                specialization: None,
+                tier: None,
             }],
             lead_agent_id: Some("s1".into()),
             created_at: 1000,

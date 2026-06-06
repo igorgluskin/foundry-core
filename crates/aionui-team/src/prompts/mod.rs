@@ -149,6 +149,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         }
     }
 
@@ -164,6 +166,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         }
     }
 

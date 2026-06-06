@@ -101,6 +101,13 @@ fn render_teammate_list(teammates: &[TeamAgent], renamed_agents: &HashMap<String
         }
         let status = m.status.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_owned());
         let _ = write!(out, "- {} ({}, status: {})", m.name, m.backend, status,);
+        // Foundry: Phase 2 (roles + capability tiers) — surface specialization/tier.
+        if let Some(spec) = m.specialization.as_deref().filter(|s| !s.is_empty()) {
+            let _ = write!(out, " [role: {spec}]");
+        }
+        if let Some(tier) = m.tier.as_deref().filter(|t| !t.is_empty()) {
+            let _ = write!(out, " [tier: {tier}]");
+        }
         if let Some(former) = renamed_agents.get(&m.slot_id) {
             let _ = write!(out, " [formerly: {former}]");
         }
@@ -208,6 +215,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         }
     }
 
@@ -283,6 +292,18 @@ mod tests {
         let t = make_teammate("w1", "Worker1", "claude");
         let got = render_teammate_list(std::slice::from_ref(&t), &renamed);
         assert_eq!(got, "- Worker1 (claude, status: unknown)");
+    }
+
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn teammate_list_renders_specialization_and_tier() {
+        let renamed = HashMap::new();
+        let mut t = make_teammate("w1", "Worker1", "claude");
+        t.status = Some(TeammateStatus::Idle);
+        t.specialization = Some("reviewer".into());
+        t.tier = Some("smart".into());
+        let got = render_teammate_list(std::slice::from_ref(&t), &renamed);
+        assert_eq!(got, "- Worker1 (claude, status: idle) [role: reviewer] [tier: smart]");
     }
 
     #[test]

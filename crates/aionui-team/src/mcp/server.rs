@@ -434,7 +434,7 @@ pub(crate) async fn dispatch_tool(
         "team_send_message" => exec_send_message(arguments, scheduler, service, team_id, caller_slot_id).await,
         "team_spawn_agent" => exec_spawn_agent(arguments, service, team_id, caller_slot_id, caller_role).await,
         "team_task_create" => exec_task_create(arguments, scheduler).await,
-        "team_task_update" => exec_task_update(arguments, scheduler).await,
+        "team_task_update" => exec_task_update(arguments, scheduler, service, team_id, caller_slot_id).await,
         "team_task_list" => exec_task_list(scheduler).await,
         "team_members" => exec_members(scheduler).await,
         "team_rename_agent" => exec_rename_agent(arguments, scheduler, service, team_id).await,
@@ -590,11 +590,16 @@ async fn exec_spawn_agent(
     // Dynamic capability check happens in `TeamSession::spawn_agent` which
     // queries both the hard whitelist and persisted MCP capabilities.
 
+    // Foundry: Phase 2 (roles + capability tiers)
+    // The previously-inert MCP `role` param now drives `specialization`.
+    // `tier` (new) lets the lead staff by capability intent.
     let req = SpawnAgentRequest {
         name: requested_name.clone(),
         agent_type,
         custom_agent_id: input.custom_agent_id,
         model: input.model,
+        specialization: input.role,
+        tier: input.tier,
     };
 
     let service = service
@@ -625,8 +630,19 @@ async fn exec_task_create(args: &Value, scheduler: &TeammateManager) -> Result<S
     Ok(format!("Task '{}' created", input.subject))
 }
 
-async fn exec_task_update(args: &Value, scheduler: &TeammateManager) -> Result<String, String> {
+async fn exec_task_update(
+    args: &Value,
+    scheduler: &TeammateManager,
+    service: &Weak<TeamSessionService>,
+    team_id: &str,
+    caller_slot_id: &str,
+) -> Result<String, String> {
     let input: TaskUpdateInput = serde_json::from_value(args.clone()).map_err(|e| format!("Invalid params: {e}"))?;
+
+    // Foundry: Phase 2 (auto-routing)
+    // Note whether this update completes the task so we can route its
+    // newly-unblocked downstream owners after the board write lands.
+    let completes = input.status.as_deref() == Some("completed");
 
     let action = crate::scheduler::SchedulerAction::TaskUpdate {
         task_id: input.task_id.clone(),
@@ -636,9 +652,32 @@ async fn exec_task_update(args: &Value, scheduler: &TeammateManager) -> Result<S
         blocked_by: input.blocked_by,
     };
     scheduler
-        .execute_action("system", &action)
+        .execute_action(caller_slot_id, &action)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Foundry: Phase 2 (auto-routing)
+    // When a task is completed, autonomously wake the owners of any downstream
+    // tasks that just became unblocked. Mirrors the send_message / shutdown
+    // wake wiring: scheduler writes the mailbox entry, then we poke the event
+    // loop via `wake_agent_in_session`. Non-fatal — the mailbox entry persists
+    // and the next caller-triggered wake will still drain it.
+    if completes {
+        match scheduler.route_unblocked_owners(&input.task_id, caller_slot_id).await {
+            Ok(owners) => {
+                if let Some(svc) = service.upgrade() {
+                    for owner in &owners {
+                        if let Err(e) = svc.wake_agent_in_session(team_id, owner).await {
+                            debug!(team_id, owner = owner.as_str(), error = %e, "auto-routing wake failed (non-fatal)");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                debug!(team_id, task_id = %input.task_id, error = %e, "auto-routing: route_unblocked_owners failed (non-fatal)");
+            }
+        }
+    }
 
     Ok(format!("Task '{}' updated", input.task_id))
 }

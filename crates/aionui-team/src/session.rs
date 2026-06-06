@@ -51,6 +51,38 @@ pub struct SpawnAgentRequest {
     pub agent_type: Option<String>,
     pub custom_agent_id: Option<String>,
     pub model: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Agent specialization (`architect | implementer | reviewer | qa | researcher`).
+    /// Sourced from the MCP `role` param.
+    pub specialization: Option<String>,
+    // Foundry: Phase 2 (roles + capability tiers)
+    /// Capability tier (`fast | balanced | smart`). When set and resolvable,
+    /// overrides backend/model unless an explicit `model` was supplied.
+    pub tier: Option<String>,
+}
+
+// Foundry: Phase 2 (roles + capability tiers)
+/// Resolve a capability tier name to a `(backend, model)` pair.
+///
+/// Tiers abstract over concrete backend/model choices so the lead can staff a
+/// teammate by intent (`smart` for an architect, `balanced` for an implementer)
+/// without naming a model. Returns `None` for an unknown tier so the caller
+/// falls back to explicit backend/model resolution.
+///
+// Foundry: TODO read tier map from settings
+/// The map below is a hardcoded default; a future change should source it from
+/// user settings (per-team or global) instead of these constants.
+pub fn resolve_tier(tier: &str) -> Option<(String, String)> {
+    // Defaults chosen to be conservative and broadly available. The backend is
+    // always `claude` here; tiers differ by model strength. Adjust on a Rust
+    // host once the settings-backed map lands.
+    let (backend, model) = match tier.trim().to_lowercase().as_str() {
+        "fast" => ("claude", "claude-3-5-haiku-latest"),
+        "balanced" => ("claude", "claude-sonnet-4-latest"),
+        "smart" => ("claude", "claude-opus-4-latest"),
+        _ => return None,
+    };
+    Some((backend.to_owned(), model.to_owned()))
 }
 
 pub struct TeamSession {
@@ -646,15 +678,36 @@ impl TeamSession {
             return Err(TeamError::DuplicateAgentName(requested_name));
         }
 
-        // Step 3: backend capability check. Hard whitelist passes immediately;
-        // otherwise query persisted agent_capabilities for MCP support.
-        let backend = req
-            .agent_type
+        // Step 3: resolve backend/model. Base backend comes from the request
+        // (or the caller's backend). A `tier` overrides backend+model unless an
+        // explicit model was passed.
+        // Foundry: Phase 2 (roles + capability tiers)
+        let explicit_model = req.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
+        let tier_resolved = req
+            .tier
             .as_deref()
             .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(caller.backend.as_str())
-            .to_owned();
+            .filter(|t| !t.is_empty())
+            .and_then(resolve_tier);
+        let tier_override = match (&tier_resolved, explicit_model) {
+            // Tier present and no explicit model → tier wins on backend+model.
+            (Some(tm), None) => Some(tm.clone()),
+            _ => None,
+        };
+
+        let backend = match &tier_override {
+            Some((tier_backend, _)) => tier_backend.clone(),
+            None => req
+                .agent_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(caller.backend.as_str())
+                .to_owned(),
+        };
+
+        // Step 3b: backend capability check. Hard whitelist passes immediately;
+        // otherwise query persisted agent_capabilities for MCP support.
         if !crate::guide::capability::TEAM_CAPABLE_BACKENDS.contains(&backend.as_str()) {
             let capable = match self.service.upgrade() {
                 Some(svc) => svc.is_backend_team_capable(&backend).await,
@@ -670,13 +723,20 @@ impl TeamSession {
             .service
             .upgrade()
             .ok_or_else(|| TeamError::InvalidRequest("spawn_agent requires a live TeamSessionService".into()))?;
-        let model = match req.model.as_deref().filter(|m| !m.is_empty()) {
-            Some(m) => m.to_owned(),
-            None => service
+        let model = match (&tier_override, explicit_model) {
+            // Explicit model always wins.
+            (_, Some(m)) => m.to_owned(),
+            // Otherwise the tier model (when a tier resolved).
+            (Some((_, tier_model)), None) => tier_model.clone(),
+            // Fall back to the backend default, then the caller's model.
+            (None, None) => service
                 .default_model_for_backend(&backend)
                 .await
                 .unwrap_or_else(|| caller.model.clone()),
         };
+        // Foundry: Phase 2 (roles + capability tiers)
+        let specialization = req.specialization.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+        let tier = req.tier.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
         let new_agent = service
             .persist_spawned_agent(
                 &self.team.id,
@@ -685,6 +745,8 @@ impl TeamSession {
                 backend,
                 model,
                 req.custom_agent_id.clone(),
+                specialization,
+                tier,
             )
             .await?;
 
@@ -1072,6 +1134,8 @@ mod tests {
                     status: None,
                     conversation_type: None,
                     cli_path: None,
+                    specialization: None,
+                    tier: None,
                 },
                 TeamAgent {
                     slot_id: "worker-1".into(),
@@ -1084,6 +1148,8 @@ mod tests {
                     status: None,
                     conversation_type: None,
                     cli_path: None,
+                    specialization: None,
+                    tier: None,
                 },
             ],
             lead_agent_id: Some("lead-1".into()),
@@ -1214,6 +1280,8 @@ mod tests {
             status: None,
             conversation_type: None,
             cli_path: None,
+            specialization: None,
+            tier: None,
         };
         session.add_agent(&new_agent).await;
 
@@ -1319,6 +1387,21 @@ mod tests {
         session.stop();
     }
 
+    // Foundry: Phase 2 (roles + capability tiers)
+    #[test]
+    fn resolve_tier_maps_known_tiers() {
+        for tier in ["fast", "balanced", "smart"] {
+            let (backend, model) = resolve_tier(tier).unwrap_or_else(|| panic!("tier {tier} must resolve"));
+            assert!(!backend.is_empty());
+            assert!(!model.is_empty());
+        }
+        // Case-insensitive + trimmed.
+        assert!(resolve_tier("  SMART ").is_some());
+        // Unknown tier → None (caller falls back to explicit backend/model).
+        assert!(resolve_tier("turbo").is_none());
+        assert!(resolve_tier("").is_none());
+    }
+
     // -- spawn_agent helpers + guard tests -----------------------------------
 
     fn sample_spawn_req() -> SpawnAgentRequest {
@@ -1327,6 +1410,8 @@ mod tests {
             agent_type: None,
             custom_agent_id: None,
             model: None,
+            specialization: None,
+            tier: None,
         }
     }
 
@@ -1717,6 +1802,8 @@ mod tests {
             agent_type: agent_type.map(str::to_owned),
             custom_agent_id: None,
             model: None,
+            specialization: None,
+            tier: None,
         }
     }
 

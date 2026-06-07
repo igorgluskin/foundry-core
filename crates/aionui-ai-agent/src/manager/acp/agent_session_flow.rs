@@ -25,6 +25,53 @@ pub(super) enum PromptOutcome {
     EmptyResponse { session_id: String, error: ErrorEventData },
 }
 
+/// Claude Code built-in tools that collide with the team's `team_*` MCP
+/// tools. In a team session these are stripped via
+/// `_meta.claudeCode.options.disallowedTools` so the model cannot create
+/// ephemeral Claude Code tasks (or spawn Claude Code subagents) that never
+/// reach the shared team board/roster — the only correct path is the
+/// `team_task_*` / `team_spawn_agent` MCP tools. Bare names remove the tool
+/// from the model's context entirely (and before tool-search), per the
+/// Claude Agent SDK permissions model. Names that don't exist in a given
+/// CLI version are harmless no-ops.
+const TEAM_DISALLOWED_BUILTIN_TOOLS: &[&str] = &[
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "Task",
+    "Agent",
+];
+
+/// Build the `_meta` map for `session/new` (and claude-meta-resume), carrying
+/// `claudeCode.options`. Adds `resume` when resuming and, for team sessions,
+/// `disallowedTools` (see [`TEAM_DISALLOWED_BUILTIN_TOOLS`]). Returns `None`
+/// when there is nothing to send (a fresh solo session), so non-team flows
+/// keep their previous no-`_meta` behaviour.
+fn build_session_meta(is_team_session: bool, resume: Option<&str>) -> Option<serde_json::Map<String, Value>> {
+    let mut options = serde_json::Map::new();
+    if let Some(sid) = resume {
+        options.insert("resume".into(), Value::String(sid.to_owned()));
+    }
+    if is_team_session {
+        let disallowed: Vec<Value> = TEAM_DISALLOWED_BUILTIN_TOOLS
+            .iter()
+            .map(|t| Value::String((*t).to_owned()))
+            .collect();
+        options.insert("disallowedTools".into(), Value::Array(disallowed));
+    }
+    if options.is_empty() {
+        return None;
+    }
+    let mut claude_code = serde_json::Map::new();
+    claude_code.insert("options".into(), Value::Object(options));
+    let mut meta = serde_json::Map::new();
+    meta.insert("claudeCode".into(), Value::Object(claude_code));
+    Some(meta)
+}
+
 impl AcpAgentManager {
     /// Establish a fresh ACP session (session/new) and apply desired
     /// mode/model/config via reconcile. Does NOT send a prompt and
@@ -33,6 +80,10 @@ impl AcpAgentManager {
     /// Returns the CLI-assigned session id.
     pub(super) async fn open_session_new(&self) -> Result<String, AgentError> {
         let req = self.params.new_session_request();
+        let req = match build_session_meta(self.params.config.team_mcp_stdio_config.is_some(), None) {
+            Some(meta) => req.meta(meta),
+            None => req,
+        };
         let session_response = self.protocol.new_session(req).await?;
 
         let sid = session_response.session_id.to_string();
@@ -112,12 +163,11 @@ impl AcpAgentManager {
     /// subsequent `session/prompt` to surface the same error to the user.
     pub(super) async fn open_session_resume(&self, session_id: &str) -> Result<String, AgentError> {
         if agent_metadata_uses_meta_resume(&self.params.metadata) {
-            let mut meta = serde_json::Map::new();
-            let mut claude_code = serde_json::Map::new();
-            let mut options = serde_json::Map::new();
-            options.insert("resume".into(), Value::String(session_id.to_owned()));
-            claude_code.insert("options".into(), Value::Object(options));
-            meta.insert("claudeCode".into(), Value::Object(claude_code));
+            // Always Some on the resume path (resume id is present); also carries
+            // team `disallowedTools` so a resumed team session keeps the built-in
+            // Task* tools stripped.
+            let meta = build_session_meta(self.params.config.team_mcp_stdio_config.is_some(), Some(session_id))
+                .expect("resume meta always present");
 
             let req = self.params.new_session_request().meta(meta);
             let new_response = match self.protocol.new_session(req).await {
@@ -597,6 +647,51 @@ mod tests {
 
         let auth_required = AcpError::AuthRequired;
         assert!(!super::is_acp_session_not_found(&auth_required));
+    }
+
+    // -- team built-in tool gating (session _meta) ----------------------------
+
+    #[test]
+    fn build_session_meta_solo_fresh_is_none() {
+        assert!(super::build_session_meta(false, None).is_none());
+    }
+
+    #[test]
+    fn build_session_meta_solo_resume_carries_resume_only() {
+        let meta = super::build_session_meta(false, Some("sess-1")).expect("resume => Some");
+        let options = meta["claudeCode"]["options"].as_object().unwrap();
+        assert_eq!(options["resume"], "sess-1");
+        assert!(
+            !options.contains_key("disallowedTools"),
+            "solo session must not gate built-in tools"
+        );
+    }
+
+    #[test]
+    fn build_session_meta_team_fresh_gates_builtin_task_tools() {
+        let meta = super::build_session_meta(true, None).expect("team => Some");
+        let options = meta["claudeCode"]["options"].as_object().unwrap();
+        assert!(!options.contains_key("resume"), "fresh session has no resume");
+        let disallowed: Vec<&str> = options["disallowedTools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        for t in ["TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop"] {
+            assert!(disallowed.contains(&t), "{t} must be disallowed in team sessions");
+        }
+    }
+
+    #[test]
+    fn build_session_meta_team_resume_carries_both() {
+        let meta = super::build_session_meta(true, Some("sess-2")).expect("team resume => Some");
+        let options = meta["claudeCode"]["options"].as_object().unwrap();
+        assert_eq!(options["resume"], "sess-2");
+        assert!(
+            options["disallowedTools"].as_array().is_some_and(|a| !a.is_empty()),
+            "team resume must still gate built-in tools"
+        );
     }
 
     // -- empty-finish diagnostic (ELECTRON-1JG) -------------------------------

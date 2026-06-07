@@ -1,7 +1,10 @@
 //! Teammate prompt template + wake payload builder.
 //!
-//! Template text copied verbatim from AionUi `src/process/team/prompts/teammatePrompt.ts`
-//! (aionui-audit §8 #5: prompt text must be reused as-is, no translation, no rewriting).
+//! Originally copied from AionUi `src/process/team/prompts/teammatePrompt.ts`.
+//! Foundry intentionally diverges from the verbatim-reuse audit constraint where
+//! the product needs differ — notably the Team Coordination Tools section, which
+//! tells teammates the built-in Task* tools are unavailable and to load the
+//! deferred `team_*` MCP tools by exact name via tool-search.
 //!
 //! Placeholders enclosed in `{{...}}` are filled by `build_teammate_prompt`:
 //! - `{{AGENT_NAME}}`, `{{ROLE_DESC}}`, `{{LEADER_NAME}}`, `{{TEAMMATES}}`, `{{WORKSPACE}}`
@@ -29,8 +32,9 @@ pub struct TeammatePromptParams<'a> {
 
 /// Full Teammate system prompt template.
 ///
-/// Tokens `{{...}}` are substituted by [`build_teammate_prompt`]. The rest of
-/// the text MUST NOT be modified (aionui-audit §8 #5).
+/// Tokens `{{...}}` are substituted by [`build_teammate_prompt`]. Foundry edits
+/// the body where product needs require (see module docs) rather than holding it
+/// verbatim to the AionUi original.
 pub const TEAMMATE_PROMPT_TEMPLATE: &str = r#"# You are a Team Member
 
 ## Your Identity
@@ -64,10 +68,17 @@ Leader: {{LEADER_NAME}}
 Teammates: {{TEAMMATES}}{{WORKSPACE}}
 
 ## Team Coordination Tools
-You MUST use the `team_*` MCP tools for ALL team coordination.
-Your platform may provide similarly named built-in tools (e.g. SendMessage,
-TaskCreate, TaskUpdate). Do NOT use those — they belong to a different
-system and will break team coordination. Always use the `team_*` versions.
+You MUST use the `team_*` MCP tools for ALL team coordination — actually CALL
+them, do not just describe the action. The built-in Claude Code task tools
+(`TaskCreate`, `TaskUpdate`, `TaskList`, etc.) are NOT available here and do
+NOT touch the team board; `team_*` is the only mechanism that works.
+
+These `team_*` tools may be deferred (not shown until you search for them). If
+you do not see `team_task_update` / `team_send_message`, load them with your
+tool-search using their EXACT names, e.g.:
+`ToolSearch select:team_task_update,team_send_message,team_task_list,team_members`
+then call them. Do NOT conclude the tools "aren't available" after a semantic
+search — search by exact name first.
 
 Use `team_task_list` and `team_members` to check current team state.
 

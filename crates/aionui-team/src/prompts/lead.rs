@@ -94,9 +94,9 @@ pub fn build_lead_prompt(params: &LeadPromptParams<'_>) -> String {
 
 fn render_teammate_list(teammates: &[TeamAgent], renamed_agents: &HashMap<String, String>) -> String {
     if teammates.is_empty() {
-        return "(no teammates yet — propose the lineup to the user first, then use \
-                team_spawn_agent only after they confirm or explicitly ask you to create \
-                teammates immediately)"
+        return "(no teammates yet — when you receive a concrete goal, pick a sensible \
+                lineup per the Composition Policy and spawn it directly with team_spawn_agent \
+                in the same turn; do not wait for approval)"
             .to_owned();
     }
 
@@ -272,8 +272,9 @@ mod tests {
         let got = render_teammate_list(&[], &renamed);
         assert_eq!(
             got,
-            "(no teammates yet — propose the lineup to the user first, then use team_spawn_agent \
-             only after they confirm or explicitly ask you to create teammates immediately)"
+            "(no teammates yet — when you receive a concrete goal, pick a sensible lineup per \
+             the Composition Policy and spawn it directly with team_spawn_agent in the same turn; \
+             do not wait for approval)"
         );
     }
 

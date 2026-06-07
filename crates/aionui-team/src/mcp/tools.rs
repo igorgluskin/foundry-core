@@ -9,27 +9,23 @@ use crate::types::TeammateRole;
 // Tool description constants (原样复用 AionUi `toolDescriptions.ts`)
 // ---------------------------------------------------------------------------
 
-/// `team_spawn_agent` 工具描述 — 原样复制自 AionUi `toolDescriptions.ts`
-/// 对应 team-prompts.md §5.2 `team_spawn_agent` Description 原文。
-/// 禁止翻译、改写；aionui-audit §8 #5 硬约束。
+/// `team_spawn_agent` tool description — Foundry autonomous variant.
+/// Diverges intentionally from AionUi's approval-gated copy: Foundry leads
+/// staff the team autonomously (product vision: no per-step human approval).
 pub const TEAM_SPAWN_AGENT_DESCRIPTION: &str = r#"Create a new teammate agent to join the team.
 
-Use this only when one of the following is true:
-- The user explicitly approved the proposed teammate lineup in a previous message
-- The user explicitly instructed you to create a specific teammate immediately
+Call this directly, in the SAME turn, whenever the current goal needs a role that
+is not yet on the team. You do NOT need user approval to staff the team — the user
+delegates outcomes, not per-step sign-off. Do not present a lineup and wait; just
+spawn the teammates you need.
 
-Before calling this tool in the normal planning flow:
-- Start with one short sentence explaining why additional teammates would help
-- Tell the user which teammate(s) you recommend
-- Present the proposal as a table with: name, responsibility, recommended agent type/backend, and recommended model
-- Include each teammate's responsibility, recommended agent type/backend, and model
-- Ask whether to create them as proposed or change any names, responsibilities, or agent types
-- In that approval question, remind the user that they can later ask you to replace or adjust any teammate if the lineup is not working well
-- Do NOT call this tool in that same turn; wait for explicit approval in a later user message
+Guidance when calling:
+- Set `role` to the teammate's specialization (architect, implementer, reviewer, qa, researcher).
+- Set `tier` appropriately (smart for architect/reviewer, balanced for implementers).
+- If a specific model is recommended (from team_list_models), pass the model parameter.
+- Reuse teammates that already exist instead of duplicating them — only spawn missing roles.
 
-When calling this tool, provide the model parameter if a specific model was recommended and approved.
-
-The new agent will be created and added to the team. You can then assign tasks and send messages to it."#;
+The new agent is created and added to the team immediately. You can then create tasks for it and send it messages."#;
 
 /// Description for `team_list_models` — verbatim from team-prompts.md §5.2.
 pub const TEAM_LIST_MODELS_DESCRIPTION: &str = "Query available models for team agent types. Returns the real-time model list that matches the frontend model selector.
@@ -498,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn team_spawn_agent_description_is_aionui_original() {
+    fn team_spawn_agent_description_is_autonomous() {
         let desc = all_tool_descriptors()
             .into_iter()
             .find(|d| d.name == "team_spawn_agent")
@@ -506,12 +502,16 @@ mod tests {
             .description;
         assert_eq!(desc, TEAM_SPAWN_AGENT_DESCRIPTION);
         assert!(
-            desc.contains("Before calling this tool"),
-            "description must be the full AionUi original, not the legacy one-liner"
+            desc.contains("in the SAME turn"),
+            "description must direct the lead to spawn in the same turn"
         );
         assert!(
-            desc.contains("explicitly approved"),
-            "description must retain the explicit-approval precondition clause"
+            desc.contains("do NOT need user approval") || desc.contains("You do NOT need user approval"),
+            "description must drop the explicit-approval gate (Foundry autonomous vision)"
+        );
+        assert!(
+            !desc.contains("wait for explicit approval"),
+            "description must not retain the approval-wait clause"
         );
     }
 

@@ -244,20 +244,23 @@ mod tests {
         let types = default_agent_types();
         let prompt = build_lead_prompt("Alpha", &[], &types, &[]);
 
-        // Workflow — 15-step procedure with model listing at step 3
+        // Workflow — autonomous procedure with model listing before spawning
         assert!(prompt.contains("## Workflow"));
         assert!(prompt.contains("FIRST call `team_list_models`"));
-        assert!(prompt.contains("Wait for explicit confirmation before using team_spawn_agent"));
-        assert!(prompt.contains("End your turn after the proposal"));
+
+        // Autonomous operating mode — no lineup/plan approval gate
+        assert!(prompt.contains("## Operating Mode: AUTONOMOUS"));
+        assert!(prompt.contains("WITHOUT pausing to ask the user to"));
+        assert!(prompt.contains("never claim an action you did not perform via a tool"));
 
         // Model Selection Guidelines
         assert!(prompt.contains("## Model Selection Guidelines"));
         assert!(prompt.contains("exact model ID strings"));
         assert!(prompt.contains("omit the model parameter"));
 
-        // Conversation Style — don't pitch proposals up-front
+        // Conversation Style — warm greeting only when there's no concrete task yet
         assert!(prompt.contains("## Conversation Style"));
-        assert!(prompt.contains("reply warmly and naturally"));
+        assert!(prompt.contains("reply warmly"));
 
         // Idle, sequencing, shutdown, important rules
         assert!(prompt.contains("## Teammate Idle State"));
@@ -298,7 +301,7 @@ mod tests {
         let types = default_agent_types();
         let prompt = build_lead_prompt("Solo", &[], &types, &[]);
         assert!(prompt.contains("(no teammates yet"));
-        assert!(prompt.contains("propose the lineup to the user first"));
+        assert!(prompt.contains("spawn it directly with team_spawn_agent"));
     }
 
     #[test]

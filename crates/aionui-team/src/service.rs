@@ -619,6 +619,26 @@ impl TeamSessionService {
 
         if let Some(session) = self.sessions.get(team_id).map(|e| Arc::clone(&e.session)) {
             session.add_agent(&agent).await;
+            // Persist the team MCP stdio config into the new agent's
+            // conversation extra so its (lazy) ACP warmup injects the team MCP
+            // server and the agent receives the `team_*` tools. Agents added to
+            // an ALREADY-RUNNING session via this HTTP path are not covered by
+            // ensure_session's initial snapshot (rebuild_agent_processes) nor by
+            // the MCP spawn path (attach_spawned_agent_process_bg), so without
+            // this they boot with no team tools. The lazy warmup on first wake
+            // reads this extra.
+            let patch = serde_json::json!({
+                "team_mcp_stdio_config": session.mcp_stdio_config(&agent.slot_id),
+                "session_mode": resolve_full_auto_mode(&agent.backend),
+            });
+            if let Err(e) = self.conversation_service.update_extra(&agent.conversation_id, patch).await {
+                warn!(
+                    team_id,
+                    slot_id = %agent.slot_id,
+                    error = %e,
+                    "failed to persist team_mcp_stdio_config for added agent (teammate will lack team_* tools)"
+                );
+            }
             self.register_event_loop(team_id, &agent.slot_id);
         }
 

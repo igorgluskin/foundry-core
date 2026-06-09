@@ -6,6 +6,12 @@
 //! builder, and handlers using `State` + `Extension<CurrentUser>` +
 //! `Path`/`Json`, returning `Json<ApiResponse<...>>`.
 
+// `ApiError` is the HTTP boundary error; this is a route module — the sanctioned
+// place to map crate errors to it — so allow the workspace-wide disallowed-types
+// lint here, matching `aionui-team/src/routes.rs` and
+// `aionui-ai-agent/src/routes/remote.rs`.
+#![allow(clippy::disallowed_types)]
+
 use std::sync::Arc;
 
 use axum::Router;
@@ -14,9 +20,7 @@ use axum::extract::{Extension, Json, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch};
 
-use aionui_api_types::{
-    ApiResponse, CreateProjectRequest, ProjectListResponse, ProjectResponse, UpdateProjectRequest,
-};
+use aionui_api_types::{ApiResponse, CreateProjectRequest, ProjectListResponse, ProjectResponse, UpdateProjectRequest};
 use aionui_auth::CurrentUser;
 use aionui_common::{ApiError, generate_prefixed_id, now_ms};
 use aionui_db::{DbError, IProjectRepository, ProjectRow, UpdateProjectParams};

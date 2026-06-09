@@ -290,7 +290,13 @@ async fn route_unblocked_owners_skips_still_blocked_task() {
         .unwrap();
     let _task_b = mgr
         .task_board
-        .create_task("t1", "B", None, Some("worker-2"), &[task_a.id.clone(), task_x.id.clone()])
+        .create_task(
+            "t1",
+            "B",
+            None,
+            Some("worker-2"),
+            &[task_a.id.clone(), task_x.id.clone()],
+        )
         .await
         .unwrap();
 

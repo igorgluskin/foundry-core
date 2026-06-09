@@ -608,15 +608,15 @@ impl TeamSessionService {
         // Only `preset_context` rides the agent build path today; `skills` and
         // `preset_assistant_id` are read by the same pipeline. Empty fields are
         // omitted so a Role without a rule/skills behaves like a plain spawn.
-        if let Some(p) = &persona {
-            if let Some(obj) = extra.as_object_mut() {
-                obj.insert("preset_assistant_id".into(), serde_json::json!(p.assistant_id));
-                if !p.preset_context.trim().is_empty() {
-                    obj.insert("preset_context".into(), serde_json::json!(p.preset_context));
-                }
-                if !p.skills.is_empty() {
-                    obj.insert("skills".into(), serde_json::json!(p.skills));
-                }
+        if let Some(p) = &persona
+            && let Some(obj) = extra.as_object_mut()
+        {
+            obj.insert("preset_assistant_id".into(), serde_json::json!(p.assistant_id));
+            if !p.preset_context.trim().is_empty() {
+                obj.insert("preset_context".into(), serde_json::json!(p.preset_context));
+            }
+            if !p.skills.is_empty() {
+                obj.insert("skills".into(), serde_json::json!(p.skills));
             }
         }
         let conv_req = CreateConversationRequest {

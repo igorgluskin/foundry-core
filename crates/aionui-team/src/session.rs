@@ -743,11 +743,7 @@ impl TeamSession {
         // lead (explicit `agent_type` or a resolvable `tier`). When it was
         // *not*, a resolved Role's `preset_agent_type` is allowed to drive the
         // backend in `persist_spawned_agent`.
-        let explicit_agent_type = req
-            .agent_type
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let explicit_agent_type = req.agent_type.as_deref().map(str::trim).filter(|s| !s.is_empty());
         let backend_explicit = tier_override.is_some() || explicit_agent_type.is_some();
 
         let mut backend = match &tier_override {
@@ -788,8 +784,18 @@ impl TeamSession {
                 .unwrap_or_else(|| caller.model.clone()),
         };
         // Foundry: Phase 2 (roles + capability tiers)
-        let specialization = req.specialization.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
-        let tier = req.tier.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
+        let specialization = req
+            .specialization
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let tier = req
+            .tier
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned);
         let new_agent = service
             .persist_spawned_agent(
                 &self.team.id,

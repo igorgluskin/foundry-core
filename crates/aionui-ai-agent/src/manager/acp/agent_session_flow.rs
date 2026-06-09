@@ -678,7 +678,14 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        for t in ["TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop"] {
+        for t in [
+            "TaskCreate",
+            "TaskUpdate",
+            "TaskGet",
+            "TaskList",
+            "TaskOutput",
+            "TaskStop",
+        ] {
             assert!(disallowed.contains(&t), "{t} must be disallowed in team sessions");
         }
     }

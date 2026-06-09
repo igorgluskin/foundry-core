@@ -631,7 +631,11 @@ impl TeamSessionService {
                 "team_mcp_stdio_config": session.mcp_stdio_config(&agent.slot_id),
                 "session_mode": resolve_full_auto_mode(&agent.backend),
             });
-            if let Err(e) = self.conversation_service.update_extra(&agent.conversation_id, patch).await {
+            if let Err(e) = self
+                .conversation_service
+                .update_extra(&agent.conversation_id, patch)
+                .await
+            {
                 warn!(
                     team_id,
                     slot_id = %agent.slot_id,
@@ -1108,11 +1112,7 @@ impl TeamSessionService {
     /// Create a task on the board. Routed through [`TaskBoard`] so the
     /// `blocked_by` → `blocks` back-edges stay consistent. Emits
     /// `team.task.created` on success.
-    pub async fn create_team_task(
-        &self,
-        team_id: &str,
-        req: CreateTaskRequest,
-    ) -> Result<TeamTaskResponse, TeamError> {
+    pub async fn create_team_task(&self, team_id: &str, req: CreateTaskRequest) -> Result<TeamTaskResponse, TeamError> {
         self.repo
             .get_team(team_id)
             .await?

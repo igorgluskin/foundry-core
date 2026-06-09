@@ -15,7 +15,6 @@ pub use models::{
 // Foundry: Phase 3 (multi-project)
 pub use models::ProjectRow;
 // Foundry: Phase 3 (multi-project)
-pub use repository::project::UpdateProjectParams;
 pub use repository::channel::UpdatePluginStatusParams;
 pub use repository::conversation::{
     ConversationFilters, ConversationRowUpdate, MessageRowUpdate, MessageSearchRow, SortOrder,
@@ -23,6 +22,7 @@ pub use repository::conversation::{
 pub use repository::cron::UpdateCronJobParams;
 pub use repository::mcp_server::{CreateMcpServerParams, UpdateMcpServerParams};
 pub use repository::oauth_token::UpsertOAuthTokenParams;
+pub use repository::project::UpdateProjectParams;
 pub use repository::provider::{CreateProviderParams, UpdateProviderParams};
 pub use repository::remote_agent::{CreateRemoteAgentParams, UpdateRemoteAgentParams};
 pub use repository::team::{UpdateTaskParams, UpdateTeamParams};

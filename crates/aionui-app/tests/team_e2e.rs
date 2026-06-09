@@ -101,16 +101,22 @@ async fn tc4_first_agent_is_lead() {
     assert_eq!(json["data"]["lead_agent_id"], json["data"]["agents"][0]["slot_id"]);
 }
 
-// TC-5: Empty agents returns 400
+// TC-5 (Foundry R1): an empty agent list is now ALLOWED — a team/project can be
+// created with an empty roster (lazy session). The first agent added later is
+// promoted to lead, and `lead_agent_id` is null until then. (Was: empty → 400.)
 #[tokio::test]
-async fn tc5_empty_agents_returns_error() {
+async fn tc5_empty_agents_creates_empty_roster_team() {
     let (mut app, services) = build_app().await;
     let (token, csrf) = setup_and_login(&mut app, &services, "admin", "StrongP@ss1").await;
 
     let body = json!({ "name": "Empty", "agents": [] });
     let req = json_with_token("POST", "/api/teams", body, &token, &csrf);
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let json = body_json(resp).await;
+    assert!(json["success"].as_bool().unwrap());
+    assert_eq!(json["data"]["agents"].as_array().unwrap().len(), 0);
+    assert!(json["data"]["lead_agent_id"].is_null());
 }
 
 // TC-6: Missing name returns 400

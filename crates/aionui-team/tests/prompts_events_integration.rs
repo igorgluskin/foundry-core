@@ -118,14 +118,17 @@ fn lp2_lead_prompt_contains_tool_descriptions() {
 fn lp3_lead_prompt_contains_task_management_guidance() {
     let prompt = build_lead_prompt("Gamma", &[], &default_agent_types(), &[]);
 
+    // Foundry R1: the Orchestrator-role rewrite of the lead prompt reworded the
+    // task-management guidance. Assert the current phrasings, which still cover
+    // the same decompose / assign / dependency / result-review intent.
     assert!(
-        prompt.contains("Break the work into tasks"),
+        prompt.contains("Break the goal into concrete tasks"),
         "missing decompose guidance"
     );
-    assert!(prompt.contains("Assign tasks"), "missing assign guidance");
+    assert!(prompt.contains("create and assign tasks"), "missing assign guidance");
     assert!(prompt.contains("dependency"), "missing dependency guidance");
     assert!(
-        prompt.contains("When teammates report back"),
+        prompt.contains("report back"),
         "missing teammate result-review guidance"
     );
 }

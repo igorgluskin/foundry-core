@@ -711,12 +711,11 @@ impl TeamSession {
             return Err(TeamError::DuplicateAgentName(requested_name));
         }
 
-        // Step 3a': DB-facing service handle. Upgraded up-front so the layered
-        // tier resolver and the Role(assistant)->backend peek can both run.
-        let service = self
-            .service
-            .upgrade()
-            .ok_or_else(|| TeamError::InvalidRequest("spawn_agent requires a live TeamSessionService".into()))?;
+        // Step 3a': DB-facing service handle. Kept optional here so the backend
+        // capability gate below stays reachable — and fail-closed — even when no
+        // live service is wired (e.g. unit sessions). The handle is hard-required
+        // after the gate, before any DB-facing step.
+        let service_opt = self.service.upgrade();
 
         // Step 3: resolve backend/model. Base backend comes from the request
         // (or the caller's backend). A `tier` overrides backend+model unless an
@@ -725,13 +724,16 @@ impl TeamSession {
         // Foundry R1 (Task 5): tier resolution is now layered — settings map →
         // Role `models[]` → hardcoded default — via `resolve_tier_layered`.
         let explicit_model = req.model.as_deref().map(str::trim).filter(|m| !m.is_empty());
-        let tier_resolved = match req.tier.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-            Some(t) => {
+        let tier_resolved = match (
+            service_opt.as_ref(),
+            req.tier.as_deref().map(str::trim).filter(|t| !t.is_empty()),
+        ) {
+            (Some(service), Some(t)) => {
                 service
                     .resolve_tier_layered(t, req.custom_agent_id.as_deref(), req.specialization.as_deref())
                     .await
             }
-            None => None,
+            _ => None,
         };
         let tier_override = match (&tier_resolved, explicit_model) {
             // Tier present and no explicit model → tier wins on backend+model.
@@ -757,6 +759,7 @@ impl TeamSession {
         // `persist_spawned_agent`) so the capability gate below validates the
         // backend that will actually be used.
         if !backend_explicit
+            && let Some(service) = service_opt.as_ref()
             && let Some(role_backend) = service
                 .resolve_role_backend(req.custom_agent_id.as_deref(), req.specialization.as_deref())
                 .await
@@ -765,13 +768,23 @@ impl TeamSession {
         }
 
         // Step 3b: backend capability check. Hard whitelist passes immediately;
-        // otherwise query persisted agent_capabilities for MCP support.
+        // otherwise query persisted agent_capabilities for MCP support. With no
+        // live service the check fails closed (reject), preserving the guardrail
+        // even outside a fully wired session.
         if !crate::guide::capability::TEAM_CAPABLE_BACKENDS.contains(&backend.as_str()) {
-            let capable = service.is_backend_team_capable(&backend).await;
+            let capable = match service_opt.as_ref() {
+                Some(service) => service.is_backend_team_capable(&backend).await,
+                None => false,
+            };
             if !capable {
                 return Err(TeamError::BackendNotAllowed(backend));
             }
         }
+
+        // The capability gate has passed; model resolution and persistence below
+        // require a live service. Hard-require it here (a no-op when present).
+        let service = service_opt
+            .ok_or_else(|| TeamError::InvalidRequest("spawn_agent requires a live TeamSessionService".into()))?;
         let model = match (&tier_override, explicit_model) {
             // Explicit model always wins.
             (_, Some(m)) => m.to_owned(),

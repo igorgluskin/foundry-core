@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/igorgluskin/foundry-core/compare/v0.1.22...v0.1.23) (2026-06-09)
+
+
+### Bug Fixes
+
+* **team:** restore fail-closed backend gate in spawn_agent ([9df707e](https://github.com/igorgluskin/foundry-core/commit/9df707e78888d0f5a667197f10709ff8c0fbfc7b))
+
 ## [0.1.22](https://github.com/iOfficeAI/AionCore/compare/v0.1.21...v0.1.22) (2026-06-05)
 
 
